@@ -16,6 +16,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import pandas as pd
 from kd_tree import KDAttribute as TreeAttribute, run_kd_lsh_query
+from r_tree import run_rtree_lsh_query
 from utils import load_dataset, extract_countries
 import ctypes
 import os
@@ -49,7 +50,7 @@ TEXT_FIELDS = {
 }
 
 TREE_OPTIONS = ["k-d Tree", "Quad Tree", "Range Tree", "R-Tree"]
-IMPLEMENTED_TREES = {"k-d Tree"}
+IMPLEMENTED_TREES = {"k-d Tree", "R-Tree"}
 
 MAX_DIMS = 5
 
@@ -320,20 +321,37 @@ class App(tk.Tk):
             mask = build_category_mask(self.df, languages, countries, adult)
             df_filtered = self.df[mask].copy().reset_index(drop=True)
 
-            result = run_kd_lsh_query(
-                df=df_filtered,
-                kd_attributes=tree_attributes,
-                ranges=ranges,
-                text_col=text_col,
-                top_n=top_n,
-                num_perm=64,
-                bands=16,
-                min_shingles=min_shingles,
-            )
             tree_name = self.tree_var.get()
+
+            if tree_name == "k-d Tree":
+                result = run_kd_lsh_query(
+                    df=df_filtered,
+                    kd_attributes=tree_attributes,
+                    ranges=ranges,
+                    text_col=text_col,
+                    top_n=top_n,
+                    num_perm=64,
+                    bands=16,
+                    min_shingles=min_shingles,
+                )
+            elif tree_name == "R-Tree":
+                result = run_rtree_lsh_query(
+                    df=df_filtered,
+                    tree_attributes=tree_attributes, 
+                    ranges=ranges,
+                    text_col=text_col,
+                    top_n=top_n,
+                    num_perm=64,
+                    bands=16,
+                    min_shingles=min_shingles,
+                )
+            else:
+                raise ValueError(f"Το δέντρο '{tree_name}' δεν έχει ενσωματωθεί ακόμα.")
+
             self.result_queue.put(("query_done", result, text_col, len(df_filtered), tree_name))
         except Exception as e:
             self.result_queue.put(("query_error", str(e)))
+            
         self.after(100, self._poll_queue)
 
     def _run_all_trees(self):
