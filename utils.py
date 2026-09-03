@@ -7,7 +7,7 @@ def load_dataset(path: str) -> pd.DataFrame:
     Loads the dataset. Handles specific formatting where the CSV uses 
     semicolons as separators and commas as decimal points.
     """
-    return pd.read_csv(path, sep=";", decimal=",")
+    return pd.read_csv(path, sep=";", decimal=",", encoding="latin1")
 
 
 def extract_countries(cell: Any) -> List[str]:

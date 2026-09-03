@@ -17,6 +17,7 @@ from tkinter import ttk, filedialog, messagebox
 import pandas as pd
 from kd_tree import KDAttribute as TreeAttribute, run_kd_lsh_query
 from r_tree import run_rtree_lsh_query
+from quad_wrapper import run_quadtree_lsh_query
 from utils import load_dataset, extract_countries
 import ctypes
 import os
@@ -50,7 +51,7 @@ TEXT_FIELDS = {
 }
 
 TREE_OPTIONS = ["k-d Tree", "Quad Tree", "Range Tree", "R-Tree"]
-IMPLEMENTED_TREES = {"k-d Tree", "R-Tree"}
+IMPLEMENTED_TREES = {"k-d Tree", "R-Tree", "Quad Tree"}
 
 MAX_DIMS = 5
 
@@ -334,6 +335,18 @@ class App(tk.Tk):
                     bands=16,
                     min_shingles=min_shingles,
                 )
+
+            elif tree_name == "Quad Tree":
+                result = run_quadtree_lsh_query(
+                    df=df_filtered,
+                    ranges=ranges,
+                    text_col=text_col,
+                    top_n=top_n,
+                    num_perm=64,
+                    bands=16,
+                    min_shingles=min_shingles,
+                )
+            
             elif tree_name == "R-Tree":
                 result = run_rtree_lsh_query(
                     df=df_filtered,
@@ -459,9 +472,12 @@ class App(tk.Tk):
 
         t = result["timings_sec"]
         
+        t_build = t.get("tree_build", t.get("kd_build", 0.0))
+        t_query = t.get("tree_query", t.get("kd_range_query", 0.0))
+        
         # Calculation of total times
-        total_build = t['kd_build'] + t['lsh_build']
-        total_query = t['kd_range_query'] + t['lsh_query']
+        total_build = t_build + t['lsh_build']
+        total_query = t_query + t['lsh_query']
         
         metrics_label.config(text=(
             f"Data Statistics:\n"
