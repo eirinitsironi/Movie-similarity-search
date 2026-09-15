@@ -23,121 +23,74 @@ def parse_list(value: Any) -> list[str]:
     """
     Converts a string representation of a list into
     a Python list.
-
     """
-
     if pd.isna(value):
         return []
-
     if isinstance(value, list):
         return value
-
     try:
         return ast.literal_eval(value)
-
     except (ValueError, SyntaxError):
         return []
 
-
 def extract_year(value: Any) -> int:
-
     if pd.isna(value):
         return 0
-
     value = str(value)
-
     if len(value) < 4:
         return 0
-
     try:
         return int(value[:4])
-
     except ValueError:
         return 0
-
 
 def safe_float(value: Any) -> float:
     """
     Safely converts a value to float.
-
     Missing or invalid values become 0.0.
     """
-
     if pd.isna(value):
         return 0.0
-
     if isinstance(value, str):
         value = value.replace(",", ".")
-
     try:
         return float(value)
-
     except (ValueError, TypeError):
         return 0.0
-
 
 def safe_int(value: Any) -> int:
     """
     Safely converts a value to int.
-
     Missing or invalid values become 0.
     """
-
     if pd.isna(value):
         return 0
-
     try:
         return int(value)
-
     except (ValueError, TypeError):
         return 0
 
 
-def create_movie(row) -> Movie:
+def create_movie(row: dict) -> Movie:
     """
     Creates a Movie object from one row of the dataset.
+    Χρησιμοποιούμε .get() για μέγιστη ασφάλεια έναντι KeyError.
     """
-
     return Movie(
-        movie_id=safe_int(row["id"]),
-
-        title=str(row["title"]),
-
-        popularity=safe_float(
-            row["popularity"]
-        ),
-
-        vote_average=safe_float(
-            row["vote_average"]
-        ),
-
-        vote_count=safe_int(
-            row["vote_count"]
-        ),
-
-        runtime=safe_float(
-            row["runtime"]
-        ),
-
-        release_year=extract_year(
-            row["release_date"]
-        ),
-
-        language=str(
-            row["original_language"]
-        ),
-
-        countries=parse_list(
-            row["origin_country"]
-        ),
-
-        genres=parse_list(
-            row["genre_names"]
-        ),
-
-        production_companies=parse_list(
-            row["production_company_names"]
-        )
+        movie_id=safe_int(row.get("id")),
+        title=str(row.get("title", "")),
+        popularity=safe_float(row.get("popularity")),
+        vote_average=safe_float(row.get("vote_average")),
+        vote_count=safe_int(row.get("vote_count")),
+        runtime=safe_float(row.get("runtime")),
+        release_year=extract_year(row.get("release_date")),
+        budget=safe_float(row.get("budget")),
+        revenue=safe_float(row.get("revenue")),
+    
+        language=str(row.get("original_language", "")),
+        countries=parse_list(row.get("origin_country")),
+        genres=parse_list(row.get("genre_names")),
+        production_companies=parse_list(row.get("production_company_names"))
     )
 
 
@@ -215,39 +168,32 @@ def movie_to_point(movie: Movie) -> Point:
 def load_movies(csv_path: str) -> list[Movie]:
     """
     Loads all movies from the CSV file.
-
     """
-
     dataframe = pd.read_csv(
-    csv_path,
-    sep=";",
-    decimal=",",
-    encoding="latin1"
+        csv_path,
+        sep=";",
+        decimal=",",
+        encoding="latin1"
     )
 
     movies: list[Movie] = []
 
-    for _, row in dataframe.iterrows():
-
+    # ΟΠΤΙΜΟΠΟΙΗΣΗ: Χρήση to_dict αντί για το αργό iterrows
+    for row in dataframe.to_dict('records'):
         try:
             movie = create_movie(row)
             movies.append(movie)
-
         except Exception:
-            #
             # Skip corrupted rows.
-            #
             continue
 
     return movies
-
 
 def compute_boundary(movies: list[Movie]) -> Rectangle:
     """
     Computes the minimum bounding hyperrectangle
     for all movies in the selected dimensions.
     """
-
     if not movies:
         raise ValueError("Movie list is empty.")
 
@@ -262,7 +208,6 @@ def compute_boundary(movies: list[Movie]) -> Rectangle:
     half_sizes = []
 
     for i in range(dimension):
-
         values = [
             point.coordinates[i]
             for point in points
@@ -284,20 +229,15 @@ def compute_boundary(movies: list[Movie]) -> Rectangle:
         half_sizes=tuple(half_sizes)
     )
 
-
 def build_quadtree(movies: list[Movie]) -> QuadTree:
     """
     Builds a multidimensional QuadTree from a list of movies.
     """
-
     boundary = compute_boundary(movies)
-
     tree = QuadTree(boundary)
 
     for movie in movies:
-
         point = movie_to_point(movie)
-
         tree.insert(point)
 
     return tree

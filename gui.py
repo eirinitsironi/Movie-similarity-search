@@ -476,17 +476,17 @@ class App(tk.Tk):
         t_query = t.get("tree_query", t.get("kd_range_query", 0.0))
         
         # Calculation of total times
-        total_build = t_build + t['lsh_build']
-        total_query = t_query + t['lsh_query']
+        total_build = t_build + t.get('lsh_build', 0.0)
+        total_query = t_query + t.get('lsh_query', 0.0)
         
         metrics_label.config(text=(
             f"Data Statistics:\n"
             f"  • After categorical filters: {n_filtered} movies\n"
-            f"  • Matched in {tree_name} range: {result['matched_count']} movies\n"
-            f"  • Skipped (low info text): {result['skipped_low_info_text']} movies\n\n"
+            f"  • Matched in {tree_name} range: {result.get('matched_count', 0)} movies\n"
+            f"  • Skipped (low info text): {result.get('skipped_low_info_text', 0)} movies\n\n"
             f"Execution Timings:\n"
-            f"  • Total Build Time: {total_build:.4f}s  ({tree_name}: {t['kd_build']:.4f}s  |  LSH: {t['lsh_build']:.4f}s)\n"
-            f"  • Total Query Time: {total_query:.5f}s  ({tree_name}: {t['kd_range_query']:.5f}s  |  LSH: {t['lsh_query']:.5f}s)"
+            f"  • Total Build Time: {total_build:.4f}s  ({tree_name}: {t_build:.4f}s  |  LSH: {t.get('lsh_build', 0.0):.4f}s)\n"
+            f"  • Total Query Time: {total_query:.5f}s  ({tree_name}: {t_query:.5f}s  |  LSH: {t.get('lsh_query', 0.0):.5f}s)"
         ))
 
 if __name__ == "__main__":
