@@ -17,7 +17,7 @@ from tkinter import ttk, filedialog, messagebox
 import pandas as pd
 from kd_tree import KDAttribute as TreeAttribute, run_kd_lsh_query
 from r_tree import run_rtree_lsh_query
-from quad_wrapper import run_quadtree_lsh_query
+from quadtree import run_quadtree_lsh_query
 from utils import load_dataset, extract_countries
 import ctypes
 import os
@@ -339,6 +339,7 @@ class App(tk.Tk):
             elif tree_name == "Quad Tree":
                 result = run_quadtree_lsh_query(
                     df=df_filtered,
+                    tree_attributes=tree_attributes,
                     ranges=ranges,
                     text_col=text_col,
                     top_n=top_n,
@@ -359,7 +360,7 @@ class App(tk.Tk):
                     min_shingles=min_shingles,
                 )
             else:
-                raise ValueError(f"Το δέντρο '{tree_name}' δεν έχει ενσωματωθεί ακόμα.")
+                raise ValueError(f"Tree type '{tree_name}' is not implemented yet.")
 
             self.result_queue.put(("query_done", result, text_col, len(df_filtered), tree_name))
         except Exception as e:
@@ -472,21 +473,21 @@ class App(tk.Tk):
 
         t = result["timings_sec"]
         
-        t_build = t.get("tree_build", t.get("kd_build", 0.0))
-        t_query = t.get("tree_query", t.get("kd_range_query", 0.0))
+        t_build = t["tree_build"]
+        t_query = t["tree_query"]
         
         # Calculation of total times
-        total_build = t_build + t.get('lsh_build', 0.0)
-        total_query = t_query + t.get('lsh_query', 0.0)
+        total_build = t_build + t['lsh_build']
+        total_query = t_query + t['lsh_query']
         
         metrics_label.config(text=(
             f"Data Statistics:\n"
             f"  • After categorical filters: {n_filtered} movies\n"
-            f"  • Matched in {tree_name} range: {result.get('matched_count', 0)} movies\n"
-            f"  • Skipped (low info text): {result.get('skipped_low_info_text', 0)} movies\n\n"
+            f"  • Matched in {tree_name} range: {result['matched_count']} movies\n"
+            f"  • Skipped (low info text): {result['skipped_low_info_text']} movies\n\n"
             f"Execution Timings:\n"
-            f"  • Total Build Time: {total_build:.4f}s  ({tree_name}: {t_build:.4f}s  |  LSH: {t.get('lsh_build', 0.0):.4f}s)\n"
-            f"  • Total Query Time: {total_query:.5f}s  ({tree_name}: {t_query:.5f}s  |  LSH: {t.get('lsh_query', 0.0):.5f}s)"
+            f"  • Total Build Time: {total_build:.4f}s  ({tree_name}: {t_build:.4f}s  |  LSH: {t['lsh_build']:.4f}s)\n"
+            f"  • Total Query Time: {total_query:.5f}s  ({tree_name}: {t_query:.5f}s  |  LSH: {t['lsh_query']:.5f}s)"
         ))
 
 if __name__ == "__main__":

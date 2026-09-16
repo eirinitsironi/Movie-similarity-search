@@ -266,8 +266,8 @@ def run_kd_lsh_query(
         "skipped_low_info_text": skipped_low_info,
         "categorical_encodings": encodings,
         "timings_sec": {
-            "kd_build": t_build,
-            "kd_range_query": t_query,
+            "tree_build": t_build,
+            "tree_query": t_query,
             "lsh_build": t_lsh_build,
             "lsh_query": t_lsh_query,
         },

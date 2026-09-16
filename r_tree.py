@@ -92,19 +92,19 @@ class RTree:
         
     def build(self, matrix: np.ndarray, ids: np.ndarray) -> None:
         """
-        Μαζική Κατασκευή (Bottom-Up Bulk Loading).
-        Εξαιρετικά γρήγορη κατασκευή ταξινομώντας τα δεδομένα.
+        Mass Construction (Bottom-Up Bulk Loading). 
+        Extremely fast construction by sorting the data.
         """
         self.size = len(matrix)
         if self.size == 0:
             return
 
-        # 1. Ταξινόμηση
+        # 1. Sorting
         order = np.argsort(matrix[:, 0])
         sorted_matrix = matrix[order]
         sorted_ids = ids[order]
 
-        # 2. Φύλλα (Leaf Nodes)
+        # 2. Leaves (Leaf Nodes)
         current_level_nodes = []
         for i in range(0, self.size, self.max_entries):
             chunk_mat = sorted_matrix[i : i + self.max_entries]
@@ -117,7 +117,7 @@ class RTree:
                 
             current_level_nodes.append(leaf)
 
-        # 3. Εσωτερικοί Κόμβοι (Bottom-Up)
+        # 3. Internal Nodes (Bottom-Up)
         while len(current_level_nodes) > 1:
             next_level_nodes = []
             
@@ -241,8 +241,8 @@ def run_rtree_lsh_query(
         "skipped_low_info_text": skipped_low_info,
         "categorical_encodings": encodings,
         "timings_sec": {
-            "kd_build": t_build, #προς εσας κοριτσια να ξερετε πρεπει να το αλλαξουμε αυτο στο γκουι μαλλον αλλα τωρα κρατησα κδ ονομα
-            "kd_range_query": t_query,
+            "tree_build": t_build,
+            "tree_query": t_query,
             "lsh_build": t_lsh_build,
             "lsh_query": t_lsh_query,
         },

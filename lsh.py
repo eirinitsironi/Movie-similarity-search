@@ -99,12 +99,6 @@ class LSHIndex:
         s1, s2 = self.signatures[id1], self.signatures[id2]
         return float(np.mean(s1 == s2))
 
-    def top_n_similar_to(self, id_: int, n: int = 10) -> List[Tuple[float, int]]:
-        """Top-N most similar items to a given item, restricted to LSH candidates."""
-        scored = [(self.jaccard_estimate(id_, c), c) for c in self.candidates(id_)]
-        scored.sort(key=lambda x: -x[0])
-        return scored[:n]
-
     def top_n_pairs(self, n: int = 10) -> List[Tuple[float, int, int]]:
         """
         Global Top-N similarity search. Uses a size-N min-heap to avoid storing 
