@@ -22,7 +22,10 @@ from utils import load_dataset, extract_countries
 import ctypes
 import os
 from gui_style import apply_theme, zebra_stripe_treeview, style_listbox
-
+import csv
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import numpy as np
 
 # no blurry scaling
 if os.name == 'nt':
@@ -124,7 +127,7 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Movie Search System")
-        self.geometry("980x980")
+        self.geometry("1260x980")
         apply_theme(self)
 
         self.df = None
@@ -259,6 +262,14 @@ class App(tk.Tk):
         self.min_shingles_var = tk.StringVar(value="2")
         ttk.Spinbox(frame, from_=1, to=10, textvariable=self.min_shingles_var, width=6).grid(row=0, column=5)
 
+        ttk.Label(frame, text="Permutations:").grid(row=0, column=6, padx=6, pady=4, sticky="w")
+        self.num_perm_var = tk.StringVar(value="64")
+        ttk.Spinbox(frame, from_=1, to=1024, textvariable=self.num_perm_var, width=8).grid(row=0, column=7, sticky="w", padx=6)
+
+        ttk.Label(frame, text="Bands:").grid(row=0, column=8, padx=6, sticky="w")
+        self.bands_var = tk.StringVar(value="16")
+        ttk.Spinbox(frame, from_=1, to=512, textvariable=self.bands_var, width=6).grid(row=0, column=9, sticky="w")
+
     # ------------------------------- actions --------------------------------
     def _build_action_buttons(self):
         frame = ttk.Frame(self)
@@ -287,8 +298,7 @@ class App(tk.Tk):
         if tree_choice not in IMPLEMENTED_TREES:
             messagebox.showinfo(
                 "Not Implemented",
-                f"The '{tree_choice}' has not been implemented yet in this version.\n"
-                f"Currently available: k-d Tree.",
+                f"The '{tree_choice}' has not been implemented yet in this version.\n",
             )
             return
 
@@ -301,8 +311,14 @@ class App(tk.Tk):
         try:
             top_n = int(self.top_n_var.get())
             min_shingles = int(self.min_shingles_var.get())
+            num_perm = int(self.num_perm_var.get())
+            bands = int(self.bands_var.get())
         except ValueError:
-            messagebox.showerror("Error", "Top-N and min_shingles must be integers.")
+            messagebox.showerror("Error", "Top-N, min_shingles, num_perm, and bands must be integers.")
+            return
+
+        if num_perm % bands != 0:
+            messagebox.showerror("Advanced LSH Error", "The number of permutations (num_perm) must be exactly divisible by the number of bands.")
             return
 
         languages = [self.lang_listbox.get(i) for i in self.lang_listbox.curselection()]
@@ -313,11 +329,11 @@ class App(tk.Tk):
         self.run_status.config(text="Running... please wait.")
         threading.Thread(
             target=self._run_query_worker,
-            args=(tree_attributes, ranges, text_col, top_n, min_shingles, languages, countries, adult),
+            args=(tree_attributes, ranges, text_col, top_n, min_shingles, num_perm, bands, languages, countries, adult),
             daemon=True,
         ).start()
 
-    def _run_query_worker(self, tree_attributes, ranges, text_col, top_n, min_shingles, languages, countries, adult):
+    def _run_query_worker(self, tree_attributes, ranges, text_col, top_n, min_shingles, num_perm, bands, languages, countries, adult):
         try:
             mask = build_category_mask(self.df, languages, countries, adult)
             df_filtered = self.df[mask].copy().reset_index(drop=True)
@@ -331,8 +347,8 @@ class App(tk.Tk):
                     ranges=ranges,
                     text_col=text_col,
                     top_n=top_n,
-                    num_perm=64,
-                    bands=16,
+                    num_perm=num_perm,
+                    bands=bands,
                     min_shingles=min_shingles,
                 )
 
@@ -343,8 +359,8 @@ class App(tk.Tk):
                     ranges=ranges,
                     text_col=text_col,
                     top_n=top_n,
-                    num_perm=64,
-                    bands=16,
+                    num_perm=num_perm,
+                    bands=bands,
                     min_shingles=min_shingles,
                 )
             
@@ -355,8 +371,8 @@ class App(tk.Tk):
                     ranges=ranges,
                     text_col=text_col,
                     top_n=top_n,
-                    num_perm=64,
-                    bands=16,
+                    num_perm=num_perm,
+                    bands=bands,
                     min_shingles=min_shingles,
                 )
             else:
@@ -372,13 +388,68 @@ class App(tk.Tk):
         if self.df is None:
             messagebox.showwarning("Dataset", "Please load the dataset first.")
             return
-        missing = ", ".join(t for t in TREE_OPTIONS if t not in IMPLEMENTED_TREES)
-        messagebox.showinfo(
-            "Run All Trees & Compare",
-            f"Only the k-d Tree will be executed (the rest: {missing} have not been implemented yet).",
-        )
-        self.tree_var.set("k-d Tree")
-        self._run_query()
+
+        selected_fields = self._gather_selected_fields()
+        tree_attributes, ranges, err = validate_ranges(selected_fields)
+        if err:
+            messagebox.showerror("Error", err)
+            return
+
+        try:
+            top_n = int(self.top_n_var.get())
+            min_shingles = int(self.min_shingles_var.get())
+            num_perm = int(self.num_perm_var.get())
+            bands = int(self.bands_var.get())
+        except ValueError:
+            messagebox.showerror("Error", "Top-N, min_shingles, num_perm, and bands must be integers.")
+            return
+
+        if num_perm % bands != 0:
+            messagebox.showerror("Advanced LSH Error", "The number of permutations (num_perm) must be exactly divisible by the number of bands.")
+            return
+
+        languages = [self.lang_listbox.get(i) for i in self.lang_listbox.curselection()]
+        countries = [self.country_listbox.get(i) for i in self.country_listbox.curselection()]
+        adult = self.adult_var.get()
+        text_col = TEXT_FIELDS[self.text_field_var.get()]
+
+        self.run_status.config(text="Running all trees... please wait.")
+        threading.Thread(
+            target=self._run_all_trees_worker,
+            args=(tree_attributes, ranges, text_col, top_n, min_shingles, num_perm, bands, languages, countries, adult),
+            daemon=True,
+        ).start()
+
+    def _run_all_trees_worker(self, tree_attributes, ranges, text_col, top_n, min_shingles, num_perm, bands, languages, countries, adult):
+        try:
+            mask = build_category_mask(self.df, languages, countries, adult)
+            df_filtered = self.df[mask].copy().reset_index(drop=True)
+
+            results = {}
+            
+            # 1. k-d Tree
+            results["k-d Tree"] = run_kd_lsh_query(
+                df=df_filtered, kd_attributes=tree_attributes, ranges=ranges,
+                text_col=text_col, top_n=top_n, num_perm=num_perm, bands=bands, min_shingles=min_shingles
+            )
+            
+            # 2. Quad Tree
+            results["Quad Tree"] = run_quadtree_lsh_query(
+                df=df_filtered, tree_attributes=tree_attributes, ranges=ranges,
+                text_col=text_col, top_n=top_n, num_perm=num_perm, bands=bands, min_shingles=min_shingles
+            )
+            
+            # 3. R-Tree
+            results["R-Tree"] = run_rtree_lsh_query(
+                df=df_filtered, tree_attributes=tree_attributes, ranges=ranges,
+                text_col=text_col, top_n=top_n, num_perm=num_perm, bands=bands, min_shingles=min_shingles
+            )
+
+            self.result_queue.put(("compare_done", results, len(df_filtered)))
+        except Exception as e:
+            self.result_queue.put(("query_error", str(e)))
+            
+        self.after(100, self._poll_queue)
 
     # ------------------------------- queue polling --------------------------------
     def _poll_queue(self):
@@ -406,6 +477,10 @@ class App(tk.Tk):
                     _, result, text_col, n_filtered, tree_name = msg
                     self._display_results(result, text_col, n_filtered, tree_name)
                     self.run_status.config(text="Completed!")
+                elif kind == "compare_done":
+                    _, results_dict, n_filtered = msg
+                    self._display_comparison(results_dict, n_filtered)
+                    self.run_status.config(text="Comparison completed!")
                 elif kind == "query_error":
                     self.run_status.config(text="Error.")
                     messagebox.showerror("Error", msg[1])
@@ -489,6 +564,189 @@ class App(tk.Tk):
             f"  • Total Build Time: {total_build:.4f}s  ({tree_name}: {t_build:.4f}s  |  LSH: {t['lsh_build']:.4f}s)\n"
             f"  • Total Query Time: {total_query:.5f}s  ({tree_name}: {t_query:.5f}s  |  LSH: {t['lsh_query']:.5f}s)"
         ))
+
+        def export_csv():
+            filepath = filedialog.asksaveasfilename(
+                defaultextension=".csv",
+                filetypes=[("CSV files", "*.csv"), ("Text files", "*.txt")],
+                title="Save Results"
+            )
+            if not filepath:
+                return
+            try:
+                with open(filepath, mode='w', newline='', encoding='utf-8') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(["--- Data Statistics ---"])
+                    writer.writerow(["Categorical filters applied", n_filtered])
+                    writer.writerow([f"Matched in {tree_name}", result['matched_count']])
+                    writer.writerow(["Skipped", result['skipped_low_info_text']])
+                    writer.writerow([])
+                    writer.writerow(["--- Execution Timings ---"])
+                    writer.writerow(["Phase", "Total Time (s)", f"{tree_name} (s)", "LSH (s)"])
+                    writer.writerow(["Build", f"{total_build:.4f}", f"{t_build:.4f}", f"{t['lsh_build']:.4f}"])
+                    writer.writerow(["Query", f"{total_query:.5f}", f"{t_query:.5f}", f"{t['lsh_query']:.5f}"])
+                    writer.writerow([])
+                    writer.writerow(["--- Top N Similar Pairs ---"])
+                    writer.writerow(["Score", "Movie A", "Features A", "Movie B", "Features B"])
+                    
+                    for score, id1, id2 in result["top_similar_pairs"]:
+                        tt1, gg1 = subset.loc[id1, ["title", text_col]]
+                        tt2, gg2 = subset.loc[id2, ["title", text_col]]
+                        writer.writerow([f"{score:.3f}", tt1, gg1, tt2, gg2])
+                        
+                messagebox.showinfo("Export Successful", f"Results successfully exported to\n{filepath}")
+            except Exception as e:
+                messagebox.showerror("Export Error", f"Failed to export results:\n{e}")
+
+        export_btn = ttk.Button(frame, text="Export to CSV", command=export_csv)
+        export_btn.pack(pady=10)
+
+    def _display_comparison(self, results_dict, n_filtered):
+        comp_window = tk.Toplevel(self)
+        comp_window.title("Exhaustive Tree Comparison")
+
+        comp_window.geometry("1080x330")
+
+        comp_window.configure(bg="#efe6b8")
+
+        frame = ttk.LabelFrame(comp_window, text="Performance Benchmarking")
+
+        frame.pack(fill="both", expand=False, padx=8, pady=8)
+
+        ttk.Label(frame, text=f"Initial subset after categorical filters: {n_filtered} movies").pack(anchor="w", padx=6, pady=4)
+
+        tree_frame = ttk.Frame(frame)
+        tree_frame.pack(fill="both", expand=False, padx=6, pady=4)
+
+        y_scroll = ttk.Scrollbar(tree_frame, orient="vertical")
+
+        display_height = len(results_dict)
+
+        columns = ("tree", "matched", "skipped", "tree_build", "tree_query", "lsh_build", "lsh_query", "total_time")
+        tree_view = ttk.Treeview(
+            tree_frame, columns=columns, show="headings", height=display_height,
+            yscrollcommand=y_scroll.set
+        )
+        
+        def toggle_selection(event):
+            item = tree_view.identify_row(event.y)
+            if item in tree_view.selection():
+                tree_view.selection_remove(item)
+                return "break"
+        
+        tree_view.bind("<Button-1>", toggle_selection)
+
+        y_scroll.config(command=tree_view.yview)
+        y_scroll.pack(side="right", fill="y")
+        tree_view.pack(side="left", fill="both", expand=True)
+        
+        headers = [
+            ("tree", "Tree Structure", 120),
+            ("matched", "Matched", 80),
+            ("skipped", "Skipped", 80),
+            ("tree_build", "Tree Build (s)", 110),
+            ("tree_query", "Tree Query (s)", 110),
+            ("lsh_build", "LSH Build (s)", 110),
+            ("lsh_query", "LSH Query (s)", 110),
+            ("total_time", "Total Time (s)", 110)
+        ]
+        
+        for col, text, width in headers:
+            tree_view.heading(col, text=text, anchor="w")
+            tree_view.column(col, width=width, minwidth=width, anchor="w")
+            
+        for tree_name, res in results_dict.items():
+            t = res["timings_sec"]
+            total = t["tree_build"] + t["tree_query"] + t["lsh_build"] + t["lsh_query"]
+            tree_view.insert("", "end", values=(
+                tree_name,
+                res["matched_count"],
+                res["skipped_low_info_text"],
+                f"{t['tree_build']:.4f}",
+                f"{t['tree_query']:.5f}",
+                f"{t['lsh_build']:.4f}",
+                f"{t['lsh_query']:.5f}",
+                f"{total:.4f}"
+            ))
+            
+        zebra_stripe_treeview(tree_view)
+
+        def export_comparison_csv():
+            filepath = filedialog.asksaveasfilename(
+                defaultextension=".csv",
+                filetypes=[("CSV files", "*.csv"), ("Text files", "*.txt")],
+                title="Save Benchmarking Results"
+            )
+            if not filepath:
+                return
+            try:
+                with open(filepath, mode='w', newline='', encoding='utf-8') as f:
+                    writer = csv.writer(f)
+                    
+                    writer.writerow(["--- Performance Benchmarking ---"])
+                    writer.writerow(["Initial subset after categorical filters", n_filtered])
+                    writer.writerow([])
+                    
+                    writer.writerow([
+                        "Tree Structure", "Matched", "Skipped", 
+                        "Tree Build (s)", "Tree Query (s)", 
+                        "LSH Build (s)", "LSH Query (s)", "Total Time (s)"
+                    ])
+                    
+                    for tree_name, res in results_dict.items():
+                        t = res["timings_sec"]
+                        total = t["tree_build"] + t["tree_query"] + t["lsh_build"] + t["lsh_query"]
+                        
+                        writer.writerow([
+                            tree_name,
+                            res["matched_count"],
+                            res["skipped_low_info_text"],
+                            f"{t['tree_build']:.4f}",
+                            f"{t['tree_query']:.5f}",
+                            f"{t['lsh_build']:.4f}",
+                            f"{t['lsh_query']:.5f}",
+                            f"{total:.4f}"
+                        ])
+                        
+                messagebox.showinfo("Export Successful", f"Benchmarking results successfully exported to\n{filepath}")
+            except Exception as e:
+                messagebox.showerror("Export Error", f"Failed to export results:\n{e}")
+
+        export_btn = ttk.Button(frame, text="Export Comparison to CSV", command=export_comparison_csv)
+        export_btn.pack(pady=10)
+
+        plot_frame = ttk.Frame(comp_window)
+        plot_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+        trees = list(results_dict.keys())
+        build_times = [results_dict[t]["timings_sec"]["tree_build"] for t in trees]
+        query_times = [results_dict[t]["timings_sec"]["tree_query"] for t in trees]
+
+        # Creating a Figure with 2 subplots
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
+        fig.patch.set_facecolor('#efe6b8')
+
+        bar_colors = ["#755050", "#8FA0AA", '#c9c745', "#634E73"]
+
+        # Graph 1: Build Times
+        ax1.bar(trees, build_times, color=bar_colors[:len(trees)], edgecolor='black')
+        ax1.set_title('Tree Build Time (seconds)', fontsize=11, fontweight='bold', color='#1e2130')
+        ax1.set_ylabel('Time (s)')
+        ax1.set_facecolor('#ede9d7')
+        ax1.grid(axis='y', linestyle='--', alpha=0.7)
+
+        # Graph 2: Query Times
+        ax2.bar(trees, query_times, color=bar_colors[:len(trees)], edgecolor='black')
+        ax2.set_title('Tree Query Time (seconds)', fontsize=11, fontweight='bold', color='#1e2130')
+        ax2.set_ylabel('Time (s)')
+        ax2.set_facecolor('#ede9d7')
+        ax2.grid(axis='y', linestyle='--', alpha=0.7)
+
+        fig.tight_layout()
+
+        canvas = FigureCanvasTkAgg(fig, master=plot_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True)
 
 if __name__ == "__main__":
     app = App()
