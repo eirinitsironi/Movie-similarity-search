@@ -18,6 +18,7 @@ import pandas as pd
 from kd_tree import KDAttribute as TreeAttribute, run_kd_lsh_query
 from r_tree import run_rtree_lsh_query
 from quadtree import run_quadtree_lsh_query
+from range_tree import run_rangetree_lsh_query
 from utils import load_dataset, extract_countries
 import ctypes
 import os
@@ -54,7 +55,7 @@ TEXT_FIELDS = {
 }
 
 TREE_OPTIONS = ["k-d Tree", "Quad Tree", "Range Tree", "R-Tree"]
-IMPLEMENTED_TREES = {"k-d Tree", "R-Tree", "Quad Tree"}
+IMPLEMENTED_TREES = {"k-d Tree", "R-Tree", "Quad Tree", "Range Tree"}
 
 MAX_DIMS = 5
 
@@ -375,6 +376,17 @@ class App(tk.Tk):
                     bands=bands,
                     min_shingles=min_shingles,
                 )
+            elif tree_name == "Range Tree":
+                result = run_rangetree_lsh_query(
+                    df=df_filtered,
+                    tree_attributes=tree_attributes, 
+                    ranges=ranges,
+                    text_col=text_col,
+                    top_n=top_n,
+                    num_perm=num_perm,
+                    bands=bands,
+                    min_shingles=min_shingles,
+                )   
             else:
                 raise ValueError(f"Tree type '{tree_name}' is not implemented yet.")
 
@@ -441,6 +453,12 @@ class App(tk.Tk):
             
             # 3. R-Tree
             results["R-Tree"] = run_rtree_lsh_query(
+                df=df_filtered, tree_attributes=tree_attributes, ranges=ranges,
+                text_col=text_col, top_n=top_n, num_perm=num_perm, bands=bands, min_shingles=min_shingles
+            )
+
+            # 4. Range Tree
+            results["Range Tree"] = run_rangetree_lsh_query(
                 df=df_filtered, tree_attributes=tree_attributes, ranges=ranges,
                 text_col=text_col, top_n=top_n, num_perm=num_perm, bands=bands, min_shingles=min_shingles
             )
