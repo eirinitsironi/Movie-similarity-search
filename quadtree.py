@@ -199,23 +199,14 @@ class QuadTreeNode:
             "QuadTreeNode"
         ] = {}
 
-        # Lazy Initialization Flag
-        self.is_divided = False 
-
     def is_leaf(self) -> bool:
         """
         Returns True if the node has no children.
-        """
 
-        return not self.is_divided
-
-    def subdivide(self) -> None:
+        Derived directly from `_children` (not a separate flag),
+        so it can never desync from reality...
         """
-        Marks the node as divided. Actual children are generated lazily.
-        """
-        if self.boundary.dimension <= 0:
-            raise ValueError("The tree must have at least one dimension.")
-        self.is_divided = True
+        return not self._children
 
     def _get_child_for_point(self, point: Point) -> "QuadTreeNode":
         """
@@ -386,7 +377,6 @@ class QuadTreeNode:
         for child in self.children():
             self.points.extend(child.points)
         self._children = {}
-        self.is_divided = False
 
     def query(
         self,
