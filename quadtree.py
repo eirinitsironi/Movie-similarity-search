@@ -182,7 +182,7 @@ class QuadTreeNode:
     def __init__(
         self,
         boundary: Rectangle,
-        capacity: int = 8):
+        capacity: int = 50):
 
         if capacity <= 0:
             raise ValueError(
@@ -427,7 +427,7 @@ class QuadTree:
     def __init__(
         self,
         boundary: Rectangle,
-        capacity: int = 8
+        capacity: int = 50
     ):
 
         self.capacity = capacity
