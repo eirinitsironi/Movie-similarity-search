@@ -199,12 +199,23 @@ class QuadTreeNode:
             "QuadTreeNode"
         ] = {}
 
+        # Lazy Initialization Flag
+        self.is_divided = False 
+
     def is_leaf(self) -> bool:
         """
         Returns True if the node has no children.
         """
 
-        return not self._children
+        return not self.is_divided
+
+    def subdivide(self) -> None:
+        """
+        Marks the node as divided. Actual children are generated lazily.
+        """
+        if self.boundary.dimension <= 0:
+            raise ValueError("The tree must have at least one dimension.")
+        self.is_divided = True
 
     def _get_child_for_point(self, point: Point) -> "QuadTreeNode":
         """
@@ -322,6 +333,35 @@ class QuadTreeNode:
 
         return True
 
+    def delete(self, point: Point) -> bool:
+        """
+        Deletes a point from the tree. (Επαναφέρθηκε)
+        """
+        if not self.boundary.contains(point):
+            return False
+
+        if self.is_leaf():
+            for i, stored_point in enumerate(self.points):
+                # Χρήση row_id αντί για movie_id για συμβατότητα με το DataFrame
+                if stored_point.row_id == point.row_id:
+                    del self.points[i]
+                    return True
+            return False
+
+        child_index = tuple(
+            1 if coordinate > center else 0
+            for coordinate, center in zip(point.coordinates, self.boundary.centers)
+        )
+        if child_index not in self._children:
+            return False
+
+        child = self._children[child_index]
+        deleted = child.delete(point)
+
+        if deleted and self._can_merge():
+            self._merge_children()
+        return deleted
+
 
     def children(self) -> list["QuadTreeNode"]:
         """
@@ -330,6 +370,23 @@ class QuadTreeNode:
 
         return list(self._children.values())
 
+    def _total_points_in_children(self) -> int:
+        return sum(len(child.points) for child in self.children())
+
+    def _can_merge(self) -> bool:
+        if self.is_leaf():
+            return False
+        for child in self.children():
+            if not child.is_leaf():
+                return False
+        return self._total_points_in_children() <= self.capacity
+
+    def _merge_children(self) -> None:
+        self.points = []
+        for child in self.children():
+            self.points.extend(child.points)
+        self._children = {}
+        self.is_divided = False
 
     def query(
         self,
@@ -415,6 +472,25 @@ class QuadTreeNode:
                 heap
             )
 
+    def _similarity_search(self, query_point: Point, radius: float, found_points: list[Point]) -> None:
+        """
+        Radius/Similarity search helper.
+        """
+        for point in self.points:
+            if query_point.distance_to(point) <= radius:
+                found_points.append(point)
+
+        children = [
+            (child.boundary.distance_to_point(query_point), child)
+            for child in self.children()
+        ]
+        children.sort(key=lambda item: item[0])
+
+        for min_distance, child in children:
+            if min_distance > radius + EPS:
+                break
+            child._similarity_search(query_point, radius, found_points)
+
 # =============================================================================
 # QuadTree
 # =============================================================================
@@ -452,6 +528,26 @@ class QuadTree:
 
         return inserted
 
+    def delete(self, point: Point) -> bool:
+        """
+        Deletes a point from the QuadTree.
+        """
+        deleted = self.root.delete(point)
+        if deleted:
+            self.size -= 1
+        return deleted
+
+    def update(self, old_point: Point, new_point: Point) -> bool:
+        """
+        Updates a point in the QuadTree.
+        """
+        if not self.delete(old_point):
+            return False
+        inserted = self.insert(new_point)
+        if not inserted:
+            self.insert(old_point)
+            return False
+        return True
 
     def __len__(self) -> int:
         """
@@ -489,6 +585,15 @@ class QuadTree:
 
         return found_points
 
+    def similarity_query(self, query_point: Point, radius: float) -> list[Point]:
+        """
+        Returns all points within the given radius of the query point.
+        """
+        if radius < 0:
+            return []
+        found_points: list[Point] = []
+        self.root._similarity_search(query_point, radius, found_points)
+        return found_points
 
     def knn(
     self,
