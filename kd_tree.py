@@ -130,6 +130,145 @@ class KDTree:
         
         return result
 
+    # ------------------------------- insert --------------------------------
+    def insert(self, point: Sequence[float], id_: int) -> None:
+        """
+        Inserts a single point into the tree, following the standard
+        k-d tree BST-style descent (alternating axis at each depth).
+        """
+        point = np.asarray(point, dtype=np.float64)
+        self.root = self._insert(self.root, point, id_, depth=0)
+        self.size += 1
+
+    def _insert(self, node: Optional[KDNode], point: np.ndarray, id_: int, depth: int) -> KDNode:
+        if node is None:
+            return KDNode(point=point, id_=id_, axis=depth % self.dims)
+
+        axis = node.axis
+        if point[axis] < node.point[axis]:
+            node.left = self._insert(node.left, point, id_, depth + 1)
+        else:
+            node.right = self._insert(node.right, point, id_, depth + 1)
+        return node
+
+    # ------------------------------- delete --------------------------------
+    def delete(self, point: Sequence[float], id_: int) -> bool:
+        """
+        Deletes the point matching both coordinates and `id_` (coordinates
+        alone are not enough, since two rows could share identical values).
+
+        Uses the classic Bentley deletion algorithm: a node with a
+        right subtree is replaced by the point with the minimum value along
+        its own splitting axis found in that right subtree (which is then
+        recursively deleted from there); a node with only a left subtree has
+        that subtree moved to the right (since a k-d tree has no ordering
+        guarantee that would let it stay on the left). This keeps every
+        remaining node's splitting axis/depth consistent, unlike naive
+        "remove and rebuild" which would cost O(N).
+        """
+        point = np.asarray(point, dtype=np.float64)
+        self.root, deleted = self._delete(self.root, point, id_)
+        if deleted:
+            self.size -= 1
+        return deleted
+
+    def _delete(self, node: Optional[KDNode], point: np.ndarray, id_: int) -> Tuple[Optional[KDNode], bool]:
+        if node is None:
+            return None, False
+
+        axis = node.axis
+
+        if node.id_ == id_ and np.array_equal(node.point, point):
+            if node.right is not None:
+                successor = self._find_min(node.right, axis)
+                node.point, node.id_ = successor.point, successor.id_
+                node.right, _ = self._delete(node.right, successor.point, successor.id_)
+                return node, True
+            if node.left is not None:
+                successor = self._find_min(node.left, axis)
+                node.point, node.id_ = successor.point, successor.id_
+                # The old left subtree becomes the new right subtree:
+                # a k-d tree has no invariant that lets us keep it on the left.
+                node.right, _ = self._delete(node.left, successor.point, successor.id_)
+                node.left = None
+                return node, True
+            # Leaf node: simply remove it.
+            return None, True
+
+        # Not this node: descend the same way insert() would have.
+        if point[axis] < node.point[axis]:
+            node.left, deleted = self._delete(node.left, point, id_)
+        else:
+            node.right, deleted = self._delete(node.right, point, id_)
+        return node, deleted
+
+    def _find_min(self, node: Optional[KDNode], axis: int) -> Optional[KDNode]:
+        """
+        Finds the node with the minimum coordinate along `axis` within
+        the given subtree. If the subtree's own splitting axis matches
+        `axis`, the minimum can only be in the left branch (O(log N)).
+        Otherwise both branches must be checked (the minimum could be
+        on either side), giving the well-known O(N^(1-1/k)) worst case
+        for this step.
+        """
+        if node is None:
+            return None
+
+        if node.axis == axis:
+            if node.left is None:
+                return node
+            return self._find_min(node.left, axis)
+
+        candidates = [node]
+        left_min = self._find_min(node.left, axis)
+        right_min = self._find_min(node.right, axis)
+        if left_min is not None:
+            candidates.append(left_min)
+        if right_min is not None:
+            candidates.append(right_min)
+        return min(candidates, key=lambda n: n.point[axis])
+
+    # ------------------------------- update --------------------------------
+    def update(
+        self,
+        old_point: Sequence[float],
+        old_id: int,
+        new_point: Sequence[float],
+        new_id: Optional[int] = None,
+    ) -> bool:
+        """
+        Updates a point's coordinates (and optionally its id) by deleting
+        the old entry and inserting the new one. Returns False without
+        modifying the tree if the old point isn't found.
+        """
+        if not self.delete(old_point, old_id):
+            return False
+        self.insert(new_point, old_id if new_id is None else new_id)
+        return True
+
+    # ------------------------------- radius / similarity query --------------------------------
+    def radius_query(self, point: Sequence[float], radius: float) -> List[Tuple[float, int]]:
+        """Return every point within `radius` of `point`, as (distance, id) pairs."""
+        point = np.asarray(point, dtype=np.float64)
+        result: List[Tuple[float, int]] = []
+
+        def recurse(node: Optional[KDNode]) -> None:
+            if node is None:
+                return
+            d = float(np.linalg.norm(node.point - point))
+            if d <= radius:
+                result.append((d, node.id_))
+
+            axis = node.axis
+            diff = point[axis] - node.point[axis]
+            near, far = (node.left, node.right) if diff <= 0 else (node.right, node.left)
+            recurse(near)
+            if abs(diff) <= radius:
+                recurse(far)
+
+        recurse(self.root)
+        return sorted(result)
+
     # ------------------------------- kNN --------------------------------
     def knn_query(self, point: Sequence[float], n: int = 5) -> List[Tuple[float, int]]:
         """Return the n nearest neighbours to `point` as (distance, id) pairs."""
