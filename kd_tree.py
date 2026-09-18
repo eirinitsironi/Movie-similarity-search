@@ -398,7 +398,7 @@ def run_kd_lsh_query(
     t_lsh_query = time.perf_counter() - t0
 
     return {
-        "kd_tree_size": tree.size,
+        "tree_size": tree.size,
         "matched_count": len(hit_ids),
         "subset": subset,
         "top_similar_pairs": top_pairs,   # list of (jaccard_est, id1, id2)
