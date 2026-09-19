@@ -3,7 +3,7 @@ GUI for Project-1 (Multi-Window Architecture)
 
 Covers:
   1. Main Menu (Loads Dataset)
-  2. Similarity Search Window (Phase 1 & Phase 2 LSH)
+  2. Similarity Search Window (Phase 1 & Phase 2 LSH + Plots & Exports)
   3. Dynamic Tree Operations Window (Build, Insert, Delete, Update, k-NN, Bulk Benchmarking)
 """
 
@@ -190,7 +190,6 @@ class OperationsWindow(tk.Toplevel):
     def __init__(self, parent, df):
         super().__init__(parent)
         self.title("Dynamic Tree Operations & Benchmarking")
-        # Αυξήθηκε το ύψος σε 850 για να χωράνε άνετα 5 διαστάσεις
         self.geometry("1000x850") 
         apply_theme(self)
         
@@ -212,28 +211,27 @@ class OperationsWindow(tk.Toplevel):
 
     def _build_config_section(self):
         frame = ttk.LabelFrame(self, text="1. Tree Setup")
-        frame.pack(fill="x", padx=10, pady=5) # Μειώθηκε το pady
+        frame.pack(fill="x", padx=10, pady=5)
 
         top = ttk.Frame(frame)
-        top.pack(fill="x", padx=6, pady=2) # Μειώθηκε το pady
+        top.pack(fill="x", padx=6, pady=2)
         ttk.Label(top, text="Structure:").pack(side="left")
         self.tree_var = tk.StringVar(value=TREE_OPTIONS[0])
         ttk.Combobox(top, textvariable=self.tree_var, values=TREE_OPTIONS, state="readonly", width=15).pack(side="left", padx=6)
         
         mid = ttk.Frame(frame)
-        mid.pack(fill="x", padx=6, pady=2) # Μειώθηκε το pady
+        mid.pack(fill="x", padx=6, pady=2)
         ttk.Label(mid, text="Select up to 5 dimensions:").pack(anchor="w")
         
         grid = ttk.Frame(mid)
-        grid.pack(anchor="w", pady=2) # Μειώθηκε το pady
+        grid.pack(anchor="w", pady=2)
         for i, label in enumerate(NUMERIC_FIELDS):
             var = tk.BooleanVar(value=False)
             cb = ttk.Checkbutton(grid, text=label, variable=var, style="Toggle.Toolbutton", command=lambda l=label: self._enforce_max_dims(l))
-            # Μειώθηκε το pady εδώ σε 2
             cb.grid(row=i//4, column=i%4, padx=5, pady=2)
             self.numeric_vars[label] = var
 
-        ttk.Button(frame, text="Build Empty Tree / Reset", command=self._build_tree_action).pack(pady=5) # Μειώθηκε το pady
+        ttk.Button(frame, text="Build Empty Tree / Reset", command=self._build_tree_action).pack(pady=5)
 
     def _enforce_max_dims(self, toggled_label):
         checked = [l for l, v in self.numeric_vars.items() if v.get()]
@@ -243,12 +241,11 @@ class OperationsWindow(tk.Toplevel):
 
     def _build_dynamic_inputs(self):
         self.op_frame = ttk.LabelFrame(self, text="2. Single & Bulk Operations")
-        self.op_frame.pack(fill="x", padx=10, pady=5) # Μειώθηκε το pady
+        self.op_frame.pack(fill="x", padx=10, pady=5)
         self.op_frame.pack_forget()
 
-        # --- Single Operations ---
         self.inputs_container = ttk.Frame(self.op_frame)
-        self.inputs_container.pack(fill="x", pady=2, padx=5) # Μειώθηκε το pady
+        self.inputs_container.pack(fill="x", pady=2, padx=5)
         
         btn_frame = ttk.Frame(self.op_frame)
         btn_frame.pack(fill="x", pady=5)
@@ -261,8 +258,7 @@ class OperationsWindow(tk.Toplevel):
         ttk.Entry(btn_frame, textvariable=self.k_var, width=5).pack(side="left")
         ttk.Button(btn_frame, text="k-NN Search", command=self._knn_search).pack(side="left", padx=5)
 
-        # --- Bulk Operations ---
-        ttk.Separator(self.op_frame, orient="horizontal").pack(fill="x", pady=5, padx=10) # Μειώθηκε το pady
+        ttk.Separator(self.op_frame, orient="horizontal").pack(fill="x", pady=5, padx=10)
         
         bulk_frame = ttk.Frame(self.op_frame)
         bulk_frame.pack(fill="x", pady=5, padx=5)
@@ -278,7 +274,6 @@ class OperationsWindow(tk.Toplevel):
     def _build_console(self):
         frame = ttk.LabelFrame(self, text="Console / Output")
         frame.pack(fill="both", expand=True, padx=10, pady=5)
-        # Μειώθηκε το ύψος (height) της κονσόλας από 12 σε 7
         self.console = tk.Text(frame, height=7, bg="#1e2130", fg="#87D5AF", font=("Consolas", 10))
         self.console.pack(fill="both", expand=True, padx=5, pady=5)
         self.log("Ready. Select attributes and build the tree.")
@@ -321,7 +316,6 @@ class OperationsWindow(tk.Toplevel):
             widget.destroy()
         self.dynamic_entries.clear()
 
-        # Μειώθηκε το pady στα πεδία από 5 σε 2
         ttk.Label(self.inputs_container, text="Movie ID (row_id):").grid(row=0, column=0, padx=5, pady=2, sticky="e")
         ent_id = ttk.Entry(self.inputs_container, width=15)
         ent_id.grid(row=0, column=1, padx=5, pady=2, sticky="w")
@@ -521,7 +515,7 @@ class OperationsWindow(tk.Toplevel):
 
 
 # ======================================================================
-# 3. SIMILARITY SEARCH WINDOW
+# 3. SIMILARITY SEARCH WINDOW (Restored Fully)
 # ======================================================================
 class SimilarityWindow(tk.Toplevel):
     def __init__(self, parent, df, languages, countries):
@@ -753,18 +747,31 @@ class SimilarityWindow(tk.Toplevel):
         results_window = tk.Toplevel(self)
         results_window.title("Results & Benchmarking")
         results_window.configure(bg="#efe6b8")
+
         frame = ttk.LabelFrame(results_window, text=f"Results & Benchmarking ({tree_name})")
         frame.pack(fill="both", expand=False, padx=8, pady=8)
+
         metrics_label = ttk.Label(frame, text="", justify="left")
         metrics_label.pack(anchor="w", padx=6, pady=4)
+
         num_results = len(result["top_similar_pairs"])
         display_height = max(3, min(num_results, 25))
+
         tree_frame = ttk.Frame(frame)
         tree_frame.pack(fill="both", expand=False, padx=6, pady=4)
+
         y_scroll = ttk.Scrollbar(tree_frame, orient="vertical")
         columns = ("score", "movie_a", "text_a", "movie_b", "text_b")
         tree_view = ttk.Treeview(tree_frame, columns=columns, show="headings", height=display_height, yscrollcommand=y_scroll.set)
         
+        # Επαναφορά της επιλογής / αποεπιλογής γραμμής (toggle selection)
+        def toggle_selection(event):
+            item = tree_view.identify_row(event.y)
+            if item in tree_view.selection():
+                tree_view.selection_remove(item)
+                return "break"
+        tree_view.bind("<Button-1>", toggle_selection)
+
         y_scroll.config(command=tree_view.yview)
         y_scroll.pack(side="right", fill="y")
         tree_view.pack(side="left", fill="both", expand=True)
@@ -804,13 +811,13 @@ class SimilarityWindow(tk.Toplevel):
                     writer = csv.writer(f)
                     writer.writerow(["--- Data Statistics ---"])
                     writer.writerow(["Categorical filters applied", n_filtered])
-                    writer.writerow([f"Matched in {tree_name}", result['matched_count']])
-                    writer.writerow(["Skipped", result['skipped_low_info_text']])
+                    writer.writerow([f"Matched in {tree_name}", result.get('matched_count', 0)])
+                    writer.writerow(["Skipped", result.get('skipped_low_info_text', 0)])
                     writer.writerow([])
                     writer.writerow(["--- Execution Timings ---"])
                     writer.writerow(["Phase", "Total Time (s)", f"{tree_name} (s)", "LSH (s)"])
-                    writer.writerow(["Build", f"{total_build:.4f}", f"{t_build:.4f}", f"{t['lsh_build']:.4f}"])
-                    writer.writerow(["Query", f"{total_query:.5f}", f"{t_query:.5f}", f"{t['lsh_query']:.5f}"])
+                    writer.writerow(["Build", f"{total_build:.4f}", f"{t_build:.4f}", f"{t.get('lsh_build', 0):.4f}"])
+                    writer.writerow(["Query", f"{total_query:.5f}", f"{t_query:.5f}", f"{t.get('lsh_query', 0):.5f}"])
                     writer.writerow([])
                     writer.writerow(["--- Top N Similar Pairs ---"])
                     writer.writerow(["Score", "Movie A", "Features A", "Movie B", "Features B"])
@@ -828,17 +835,31 @@ class SimilarityWindow(tk.Toplevel):
     def _display_comparison(self, results_dict, n_filtered):
         comp_window = tk.Toplevel(self)
         comp_window.title("Exhaustive Tree Comparison")
-        comp_window.geometry("1080x330")
+        # Αυξήθηκε το μέγεθος του παραθύρου για να χωράνε άνετα και τα γραφήματα matplotlib
+        comp_window.geometry("1080x750")
         comp_window.configure(bg="#efe6b8")
+
         frame = ttk.LabelFrame(comp_window, text="Performance Benchmarking")
         frame.pack(fill="both", expand=False, padx=8, pady=8)
+
         ttk.Label(frame, text=f"Initial subset after categorical filters: {n_filtered} movies").pack(anchor="w", padx=6, pady=4)
+
         tree_frame = ttk.Frame(frame)
         tree_frame.pack(fill="both", expand=False, padx=6, pady=4)
+        
         y_scroll = ttk.Scrollbar(tree_frame, orient="vertical")
         display_height = len(results_dict)
         columns = ("tree", "matched", "skipped", "tree_build", "tree_query", "lsh_build", "lsh_query", "total_time")
         tree_view = ttk.Treeview(tree_frame, columns=columns, show="headings", height=display_height, yscrollcommand=y_scroll.set)
+        
+        # Επαναφορά της επιλογής / αποεπιλογής γραμμής στο πινακάκι σύγκρισης
+        def toggle_selection(event):
+            item = tree_view.identify_row(event.y)
+            if item in tree_view.selection():
+                tree_view.selection_remove(item)
+                return "break"
+        tree_view.bind("<Button-1>", toggle_selection)
+
         y_scroll.config(command=tree_view.yview)
         y_scroll.pack(side="right", fill="y")
         tree_view.pack(side="left", fill="both", expand=True)
@@ -854,11 +875,102 @@ class SimilarityWindow(tk.Toplevel):
             t = res["timings_sec"]
             t_b = t.get("tree_build", t.get("kd_build", 0.0))
             t_q = t.get("tree_query", t.get("kd_range_query", 0.0))
-            total = t_b + t_q + t.get("lsh_build", 0.0) + t.get("lsh_query", 0.0)
-            tree_view.insert("", "end", values=(tree_name, res["matched_count"], res.get("skipped_low_info_text", 0),
-                                                f"{t_b:.4f}", f"{t_q:.5f}", f"{t.get('lsh_build',0):.4f}", f"{t.get('lsh_query',0):.5f}", f"{total:.4f}"))
+            lsh_b = t.get("lsh_build", 0.0)
+            lsh_q = t.get("lsh_query", 0.0)
+            total = t_b + t_q + lsh_b + lsh_q
+            tree_view.insert("", "end", values=(
+                tree_name, 
+                res.get("matched_count", 0), 
+                res.get("skipped_low_info_text", 0),
+                f"{t_b:.4f}", 
+                f"{t_q:.5f}", 
+                f"{lsh_b:.4f}", 
+                f"{lsh_q:.5f}", 
+                f"{total:.4f}"
+            ))
+            
         zebra_stripe_treeview(tree_view)
 
+        # Επαναφορά του κουμπιού εξαγωγής CSV για τη Σύγκριση
+        def export_comparison_csv():
+            filepath = filedialog.asksaveasfilename(
+                defaultextension=".csv",
+                filetypes=[("CSV files", "*.csv"), ("Text files", "*.txt")],
+                title="Save Benchmarking Results"
+            )
+            if not filepath:
+                return
+            try:
+                with open(filepath, mode='w', newline='', encoding='utf-8') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(["--- Performance Benchmarking ---"])
+                    writer.writerow(["Initial subset after categorical filters", n_filtered])
+                    writer.writerow([])
+                    writer.writerow([
+                        "Tree Structure", "Matched", "Skipped", 
+                        "Tree Build (s)", "Tree Query (s)", 
+                        "LSH Build (s)", "LSH Query (s)", "Total Time (s)"
+                    ])
+                    
+                    for tree_name, res in results_dict.items():
+                        t = res["timings_sec"]
+                        t_b = t.get("tree_build", t.get("kd_build", 0.0))
+                        t_q = t.get("tree_query", t.get("kd_range_query", 0.0))
+                        lsh_b = t.get("lsh_build", 0.0)
+                        lsh_q = t.get("lsh_query", 0.0)
+                        total = t_b + t_q + lsh_b + lsh_q
+                        
+                        writer.writerow([
+                            tree_name,
+                            res.get("matched_count", 0),
+                            res.get("skipped_low_info_text", 0),
+                            f"{t_b:.4f}",
+                            f"{t_q:.5f}",
+                            f"{lsh_b:.4f}",
+                            f"{lsh_q:.5f}",
+                            f"{total:.4f}"
+                        ])
+                        
+                messagebox.showinfo("Export Successful", f"Benchmarking results successfully exported to\n{filepath}")
+            except Exception as e:
+                messagebox.showerror("Export Error", f"Failed to export results:\n{e}")
+
+        export_btn = ttk.Button(frame, text="Export Comparison to CSV", command=export_comparison_csv)
+        export_btn.pack(pady=10)
+
+        # Επαναφορά των Γραφημάτων (Matplotlib)
+        plot_frame = ttk.Frame(comp_window)
+        plot_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+        trees = list(results_dict.keys())
+        build_times = [results_dict[t]["timings_sec"].get("tree_build", results_dict[t]["timings_sec"].get("kd_build", 0.0)) for t in trees]
+        query_times = [results_dict[t]["timings_sec"].get("tree_query", results_dict[t]["timings_sec"].get("kd_range_query", 0.0)) for t in trees]
+
+        # Δημιουργία Figure με 2 subplots (1 γραμμή, 2 στήλες)
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
+        fig.patch.set_facecolor('#efe6b8')
+
+        bar_colors = ["#755050", "#8FA0AA", '#c9c745', "#634E73"]
+
+        # Γράφημα 1: Build Times
+        ax1.bar(trees, build_times, color=bar_colors[:len(trees)], edgecolor='black')
+        ax1.set_title('Tree Build Time (seconds)', fontsize=11, fontweight='bold', color='#1e2130')
+        ax1.set_ylabel('Time (s)')
+        ax1.set_facecolor('#ede9d7')
+        ax1.grid(axis='y', linestyle='--', alpha=0.7)
+
+        # Γράφημα 2: Query Times
+        ax2.bar(trees, query_times, color=bar_colors[:len(trees)], edgecolor='black')
+        ax2.set_title('Tree Query Time (seconds)', fontsize=11, fontweight='bold', color='#1e2130')
+        ax2.set_ylabel('Time (s)')
+        ax2.set_facecolor('#ede9d7')
+        ax2.grid(axis='y', linestyle='--', alpha=0.7)
+
+        fig.tight_layout()
+
+        canvas = FigureCanvasTkAgg(fig, master=plot_frame)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True)
 
 if __name__ == "__main__":
     app = MainMenu()
