@@ -5,14 +5,17 @@ Scheme: R-tree + LSH (MinHash)
 Implements the spatial search pipeline using a dynamic R-tree:
   - Phase 1 (R-Tree): Indexes numeric and encoded-categorical attributes 
     (k <= 5) using Minimum Bounding Rectangles (MBRs) to efficiently 
-    resolve orthogonal range queries. Features Bottom-Up Bulk Loading 
-    (Sort-Based) for extremely fast O(N log N) tree construction.
+    resolve orthogonal range queries. Features Bottom-Up Bulk Loading,
+    along with fully dynamic Insert, Delete, Update, Radius, and kNN operations.
   - Phase 2 (LSH): Applies MinHash and Locality-Sensitive Hashing to textual 
     attributes of the filtered subset.
 """
 
 from __future__ import annotations
+import math
 import time
+import heapq
+import itertools
 from typing import Any, Dict, List, Optional, Tuple, Sequence
 import numpy as np
 import pandas as pd
@@ -45,6 +48,21 @@ def mbrs_intersect(mbr1: Tuple[Tuple[float, float], ...], mbr2: Tuple[Tuple[floa
         if min1 > max2 or max1 < min2:
             return False
     return True
+
+def mbr_contains(mbr_outer: Tuple[Tuple[float, float], ...], mbr_inner: Tuple[Tuple[float, float], ...]) -> bool:
+    for (min_out, max_out), (min_in, max_in) in zip(mbr_outer, mbr_inner):
+        if min_in < min_out or max_in > max_out:
+            return False
+    return True
+
+def point_mbr_distance(point: Sequence[float], mbr: Tuple[Tuple[float, float], ...]) -> float:
+    dist_sq = 0.0
+    for p, (min_v, max_v) in zip(point, mbr):
+        if p < min_v:
+            dist_sq += (min_v - p) ** 2
+        elif p > max_v:
+            dist_sq += (p - max_v) ** 2
+    return math.sqrt(dist_sq)
 
 
 class RTreeNode:
@@ -91,20 +109,15 @@ class RTree:
         self.size = 0
         
     def build(self, matrix: np.ndarray, ids: np.ndarray) -> None:
-        """
-        Mass Construction (Bottom-Up Bulk Loading). 
-        Extremely fast construction by sorting the data.
-        """
+        """Mass Construction (Bottom-Up Bulk Loading)."""
         self.size = len(matrix)
         if self.size == 0:
             return
 
-        # 1. Sorting
         order = np.argsort(matrix[:, 0])
         sorted_matrix = matrix[order]
         sorted_ids = ids[order]
 
-        # 2. Leaves (Leaf Nodes)
         current_level_nodes = []
         for i in range(0, self.size, self.max_entries):
             chunk_mat = sorted_matrix[i : i + self.max_entries]
@@ -117,24 +130,20 @@ class RTree:
                 
             current_level_nodes.append(leaf)
 
-        # 3. Internal Nodes (Bottom-Up)
         while len(current_level_nodes) > 1:
             next_level_nodes = []
-            
             for i in range(0, len(current_level_nodes), self.max_entries):
                 chunk_nodes = current_level_nodes[i : i + self.max_entries]
-                
                 parent = RTreeNode(is_leaf=False, max_entries=self.max_entries)
                 for child_node in chunk_nodes:
                     parent.entries.append((child_node.get_node_mbr(), child_node))
-                    
                 next_level_nodes.append(parent)
-                
             current_level_nodes = next_level_nodes
 
         self.root = current_level_nodes[0]
 
-    def insert(self, item_id: int, coords: Tuple[float, ...]) -> None:
+    # ------------------------------- insert --------------------------------
+    def insert(self, item_id: int, coords: Sequence[float]) -> None:
         point_mbr = get_point_mbr(coords)
         new_child = self._insert_recursive(self.root, point_mbr, item_id)
         
@@ -144,6 +153,8 @@ class RTree:
             new_root.entries.append((self.root.get_node_mbr(), self.root))
             new_root.entries.append((new_child_mbr, new_node))
             self.root = new_root
+            
+        self.size += 1
 
     def _insert_recursive(self, node: RTreeNode, point_mbr: Tuple[Tuple[float, float], ...], item_id: int):
         if node.is_leaf:
@@ -172,6 +183,49 @@ class RTree:
                 return node.split_node()
         return None
 
+    # ------------------------------- delete --------------------------------
+    def delete(self, coords: Sequence[float], item_id: int) -> bool:
+        if self.size == 0:
+            return False
+            
+        point_mbr = get_point_mbr(coords)
+        deleted = self._delete_recursive(self.root, point_mbr, item_id)
+        
+        if deleted:
+            self.size -= 1
+            if not self.root.entries:
+                self.root = RTreeNode(is_leaf=True, max_entries=self.max_entries)
+                
+        return deleted
+
+    def _delete_recursive(self, node: RTreeNode, point_mbr: Tuple[Tuple[float, float], ...], item_id: int) -> bool:
+        if node.is_leaf:
+            for i, (entry_mbr, entry_id) in enumerate(node.entries):
+                if entry_id == item_id and entry_mbr == point_mbr:
+                    node.entries.pop(i)
+                    return True
+            return False
+
+        for i, (child_mbr, child_node) in enumerate(node.entries):
+            if mbr_contains(child_mbr, point_mbr):
+                if self._delete_recursive(child_node, point_mbr, item_id):
+                    if not child_node.entries:
+                        node.entries.pop(i)
+                    else:
+                        node.entries[i] = (child_node.get_node_mbr(), child_node)
+                    return True
+        return False
+
+    # ------------------------------- update --------------------------------
+    def update(self, old_point: Sequence[float], old_id: int, new_point: Sequence[float], new_id: Optional[int] = None) -> bool:
+        if not self.delete(old_point, old_id):
+            return False
+        
+        final_id = new_id if new_id is not None else old_id
+        self.insert(final_id, new_point)
+        return True
+
+    # ------------------------------- range query --------------------------------
     def range_query(self, mins: Sequence[float], maxs: Sequence[float]) -> List[int]:
         query_mbr = tuple((float(mi), float(ma)) for mi, ma in zip(mins, maxs))
         result: List[int] = []
@@ -185,6 +239,63 @@ class RTree:
                     result.append(child_or_data)
                 else:
                     self._search_recursive(child_or_data, query_mbr, result)
+
+    # ------------------------------- similarity / radius query --------------------------------
+    def radius_query(self, point: Sequence[float], radius: float) -> List[Tuple[float, int]]:
+        """Returns every point within radius, as a list of (distance, id)."""
+        result: List[Tuple[float, int]] = []
+        if self.size > 0:
+            self._radius_recursive(self.root, point, radius, result)
+        return sorted(result)
+
+    def _radius_recursive(self, node: RTreeNode, point: Sequence[float], radius: float, result: List[Tuple[float, int]]):
+        for entry_mbr, child_or_data in node.entries:
+            if node.is_leaf:
+                # In leaves, the MBR is just the point (min == max)
+                dist = point_mbr_distance(point, entry_mbr)
+                if dist <= radius:
+                    result.append((dist, child_or_data))
+            else:
+                # Branch and bound: if the MBR is farther than the radius, discard the whole branch
+                dist = point_mbr_distance(point, entry_mbr)
+                if dist <= radius:
+                    self._radius_recursive(child_or_data, point, radius, result)
+
+    # ------------------------------- kNN query --------------------------------
+    def knn_query(self, point: Sequence[float], n: int = 5) -> List[Tuple[float, int]]:
+        """
+        Returns the k=n nearest points using Best-First Search
+        with a priority queue, which prunes far away MBRs.
+        """
+        if self.size == 0 or n <= 0:
+            return []
+
+        # heap: (distance, is_data, counter, data_or_node)
+        heap = []
+        counter = itertools.count()  # Used as a tie-breaker when distances are equal
+
+        heapq.heappush(heap, (0.0, False, next(counter), self.root))
+        result: List[Tuple[float, int]] = []
+
+        while heap and len(result) < n:
+            dist, is_data, _, item = heapq.heappop(heap)
+
+            if is_data:
+                # Found an actual point, add it to the results.
+                result.append((dist, item))
+            else:
+                # It is an R-Tree node (RTreeNode). Expand its children.
+                for entry_mbr, child_or_data in item.entries:
+                    if item.is_leaf:
+                        # It is a leaf, so it contains data
+                        exact_dist = point_mbr_distance(point, entry_mbr)
+                        heapq.heappush(heap, (exact_dist, True, next(counter), child_or_data))
+                    else:
+                        # It is an internal node, push the minimum bound distance (MINDIST) to the queue
+                        min_dist = point_mbr_distance(point, entry_mbr)
+                        heapq.heappush(heap, (min_dist, False, next(counter), child_or_data))
+
+        return result
 
 
 # ======================================================================
