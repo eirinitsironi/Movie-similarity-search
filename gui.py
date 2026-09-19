@@ -482,6 +482,9 @@ class OperationsWindow(tk.Toplevel):
             self.log(f"FAIL: Update failed. Movie {old_id} not found at {old_coords}.")
 
     def _knn_search(self):
+        if not hasattr(self, 'active_tree') or self.active_tree.size == 0:
+            self.log(f"FAIL: Cannot perform k-NN. The {self.tree_type} is empty!")
+            return
         data = self._get_input_point()
         if not data: 
             messagebox.showwarning("Input Error", "Please fill in all required fields first.", parent=self)
@@ -604,6 +607,9 @@ class OperationsWindow(tk.Toplevel):
         self.log(f"BULK DELETE: {N} points deleted from {self.tree_type} in {t_total:.5f} seconds.")
 
     def _bulk_knn(self):
+        if not hasattr(self, 'active_tree') or self.active_tree.size == 0:
+            self.log(f"FAIL: Cannot perform Bulk k-NN. The {self.tree_type} is empty!")
+            return
         try: N = int(self.n_var.get())
         except ValueError: return
         try: k = int(self.bulk_k_var.get())
