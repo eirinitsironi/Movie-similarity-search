@@ -205,8 +205,8 @@ class OperationsWindow(tk.Toplevel):
         self.active_attrs = []
         self.attr_bounds = {}
         
-        self.synthetic_data = [] 
-        self.synthetic_id_counter = 1000000 
+        self.csv_data = [] 
+        self.csv_id_counter = 1000000 
 
         self.tree_ids = set()
         self.csv_id_pool = []
@@ -308,7 +308,7 @@ class OperationsWindow(tk.Toplevel):
 
         self.active_attrs = [NUMERIC_FIELDS[l] for l in selected_labels]
         self.tree_type = self.tree_var.get()
-        self.synthetic_data.clear()
+        self.csv_data.clear()
 
         self.tree_ids = set()
         self.csv_id_pool = self._build_csv_id_pool()
@@ -417,7 +417,7 @@ class OperationsWindow(tk.Toplevel):
         elapsed = time.perf_counter() - t0    
 
         self.tree_ids.add(row_id)
-        self.synthetic_data.append((row_id, coords))
+        self.csv_data.append((row_id, coords))
         if row_id in self.csv_id_pool:
             self.csv_id_pool.remove(row_id)
 
@@ -444,7 +444,7 @@ class OperationsWindow(tk.Toplevel):
 
         if succ:
             self.tree_ids.discard(row_id)
-            self.synthetic_data = [(rid, c) for rid, c in self.synthetic_data if rid != row_id]
+            self.csv_data = [(rid, c) for rid, c in self.csv_data if rid != row_id]
             if row_id in self.df.index and row_id not in self.csv_id_pool:
                 self.csv_id_pool.append(row_id)
 
@@ -471,9 +471,9 @@ class OperationsWindow(tk.Toplevel):
         elapsed = time.perf_counter() - t0
 
         if succ:
-            self.synthetic_data = [
+            self.csv_data = [
                 (rid, new_coords) if rid == old_id else (rid, c)
-                for rid, c in self.synthetic_data
+                for rid, c in self.csv_data
             ]
             self.log(f"SUCCESS: Updated Movie {old_id} in {elapsed:.5f} sec.")
             self.log(f"   -> From : {old_coords}")
@@ -555,8 +555,8 @@ class OperationsWindow(tk.Toplevel):
                 self.active_tree.insert(coords, row_id)
         t_total = time.perf_counter() - t0
 
-        self.synthetic_data.extend(pts)
-        self.synthetic_data.sort(key=lambda x: x[0]) 
+        self.csv_data.extend(pts)
+        self.csv_data.sort(key=lambda x: x[0]) 
         
         self.tree_ids.update(row_id for row_id, _ in pts)
         
@@ -573,14 +573,14 @@ class OperationsWindow(tk.Toplevel):
         try: N = int(self.n_var.get())
         except ValueError: return
         
-        if N > len(self.synthetic_data):
-            N = len(self.synthetic_data)
+        if N > len(self.csv_data):
+            N = len(self.csv_data)
         if N == 0:
             self.log("BULK DELETE: No data available. Please Bulk Insert first.")
             return
 
-        to_delete = self.synthetic_data[-N:]
-        self.synthetic_data = self.synthetic_data[:-N]
+        to_delete = self.csv_data[-N:]
+        self.csv_data = self.csv_data[:-N]
 
         t0 = time.perf_counter()
         if self.tree_type == "Quad Tree":
