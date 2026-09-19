@@ -22,7 +22,6 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import numpy as np
 
-# Imports από τα δικά σου αρχεία
 from kd_tree import KDAttribute as TreeAttribute, run_kd_lsh_query, KDTree
 from quadtree import run_quadtree_lsh_query, QuadTree, Point, Rectangle
 from r_tree import run_rtree_lsh_query, RTree
@@ -30,6 +29,8 @@ from range_tree import run_rangetree_lsh_query, RangeTree
 from utils import load_dataset, extract_countries
 from gui_style import apply_theme, zebra_stripe_treeview, style_listbox
 
+
+# no blurry scaling
 if os.name == 'nt':
     try:
         ctypes.windll.shcore.SetProcessDpiAwareness(1)
@@ -82,9 +83,14 @@ def build_category_mask(df: pd.DataFrame, languages: list, countries: list, adul
         mask &= df["adult"].astype(str).str.strip().str.upper() == "TRUE"
     elif adult == "No":
         mask &= df["adult"].astype(str).str.strip().str.upper() == "FALSE"
+        # "All" -> no filter
     return mask
 
 def validate_ranges(selected_fields: dict) -> tuple:
+    """
+    selected_fields: {label: (min_str, max_str)} for checked attributes only.
+    Returns (tree_attributes, ranges_dict, error_message_or_None).
+    """
     if not selected_fields:
         return None, None, "Select at least 1 numeric feature (k>=1)."
     if len(selected_fields) > MAX_DIMS:
@@ -112,7 +118,7 @@ class MainMenu(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Movie Search System - Main Menu")
-        self.geometry("600x400")
+        self.geometry("800x450")
         apply_theme(self)
 
         self.df = None
@@ -515,13 +521,13 @@ class OperationsWindow(tk.Toplevel):
 
 
 # ======================================================================
-# 3. SIMILARITY SEARCH WINDOW (Restored Fully)
+# 3. SIMILARITY SEARCH WINDOW 
 # ======================================================================
 class SimilarityWindow(tk.Toplevel):
     def __init__(self, parent, df, languages, countries):
         super().__init__(parent)
         self.title("Similarity Search & Range Queries")
-        self.geometry("1260x980")
+        self.geometry("1260x860")
         apply_theme(self)
 
         self.df = df
@@ -542,6 +548,7 @@ class SimilarityWindow(tk.Toplevel):
         for c in self.countries:
             self.country_listbox.insert("end", c)
 
+    # ------------------------------- categorical --------------------------------
     def _build_categorical_section(self):
         frame = ttk.LabelFrame(self, text="1. Categorical Pre-Filters (empty selection = 'all')")
         frame.pack(fill="x", padx=8, pady=6)
@@ -564,6 +571,7 @@ class SimilarityWindow(tk.Toplevel):
         ttk.Combobox(frame, textvariable=self.adult_var, values=["All", "Yes", "No"],
                      state="readonly", width=10).grid(row=1, column=4, sticky="n", padx=6)
 
+    # ------------------------------- tree config --------------------------------
     def _build_tree_section(self):
         frame = ttk.LabelFrame(self, text=f"2. Tree Configuration & Range Queries (Phase 1) — select up to {MAX_DIMS} features")
         frame.pack(fill="x", padx=8, pady=6)
@@ -594,6 +602,7 @@ class SimilarityWindow(tk.Toplevel):
             self.numeric_vars[just_toggled_label].set(False)
             messagebox.showwarning("Warning", f"You can select up to {MAX_DIMS} features at once (k<={MAX_DIMS}).")
 
+    # ------------------------------- lsh config --------------------------------
     def _build_lsh_section(self):
         frame = ttk.LabelFrame(self, text="3. Similarity Search (Phase 2 — LSH)")
         frame.pack(fill="x", padx=8, pady=6)
@@ -613,6 +622,7 @@ class SimilarityWindow(tk.Toplevel):
         self.bands_var = tk.StringVar(value="16")
         ttk.Spinbox(frame, from_=1, to=512, textvariable=self.bands_var, width=6).grid(row=0, column=9, sticky="w")
 
+    # ------------------------------- actions --------------------------------
     def _build_action_buttons(self):
         frame = ttk.Frame(self)
         frame.pack(fill="x", padx=8, pady=6)
@@ -621,6 +631,7 @@ class SimilarityWindow(tk.Toplevel):
         self.run_status = ttk.Label(frame, text="")
         self.run_status.pack(side="left", padx=10)
 
+    # ------------------------------- run query --------------------------------
     def _gather_selected_fields(self):
         selected = {}
         for label, var in self.numeric_vars.items():
@@ -648,7 +659,7 @@ class SimilarityWindow(tk.Toplevel):
             messagebox.showerror("Error", "Inputs must be integers.")
             return
         if num_perm % bands != 0:
-            messagebox.showerror("Advanced LSH Error", "Permutations must be divisible by bands.")
+            messagebox.showerror("Advanced LSH Error", "The number of permutations (num_perm) must be exactly divisible by the number of bands.")
             return
 
         languages = [self.lang_listbox.get(i) for i in self.lang_listbox.curselection()]
@@ -697,6 +708,11 @@ class SimilarityWindow(tk.Toplevel):
             num_perm = int(self.num_perm_var.get())
             bands = int(self.bands_var.get())
         except ValueError:
+            messagebox.showerror("Error", "Top-N, min_shingles, num_perm, and bands must be integers.")
+            return
+
+        if num_perm % bands != 0:
+            messagebox.showerror("Advanced LSH Error", "The number of permutations (num_perm) must be exactly divisible by the number of bands.")
             return
         languages = [self.lang_listbox.get(i) for i in self.lang_listbox.curselection()]
         countries = [self.country_listbox.get(i) for i in self.country_listbox.curselection()]
@@ -724,6 +740,7 @@ class SimilarityWindow(tk.Toplevel):
             self.result_queue.put(("query_error", str(e)))
         self.after(100, self._poll_queue)
 
+    # ------------------------------- queue polling --------------------------------
     def _poll_queue(self):
         try:
             while True:
@@ -743,6 +760,7 @@ class SimilarityWindow(tk.Toplevel):
         except queue.Empty:
             pass
 
+    # ------------------------------- results popup --------------------------------
     def _display_results(self, result, text_col, n_filtered, tree_name):
         results_window = tk.Toplevel(self)
         results_window.title("Results & Benchmarking")
@@ -764,7 +782,6 @@ class SimilarityWindow(tk.Toplevel):
         columns = ("score", "movie_a", "text_a", "movie_b", "text_b")
         tree_view = ttk.Treeview(tree_frame, columns=columns, show="headings", height=display_height, yscrollcommand=y_scroll.set)
         
-        # Επαναφορά της επιλογής / αποεπιλογής γραμμής (toggle selection)
         def toggle_selection(event):
             item = tree_view.identify_row(event.y)
             if item in tree_view.selection():
@@ -788,8 +805,9 @@ class SimilarityWindow(tk.Toplevel):
         zebra_stripe_treeview(tree_view)
 
         t = result["timings_sec"]
-        t_build = t.get("tree_build", t.get("kd_build", 0.0))
-        t_query = t.get("tree_query", t.get("kd_range_query", 0.0))
+        t_build = t.get("tree_build", 0.0)
+        t_query = t.get("tree_query", 0.0)
+        # Calculation of total times
         total_build = t_build + t.get('lsh_build', 0.0)
         total_query = t_query + t.get('lsh_query', 0.0)
         
@@ -835,7 +853,6 @@ class SimilarityWindow(tk.Toplevel):
     def _display_comparison(self, results_dict, n_filtered):
         comp_window = tk.Toplevel(self)
         comp_window.title("Exhaustive Tree Comparison")
-        # Αυξήθηκε το μέγεθος του παραθύρου για να χωράνε άνετα και τα γραφήματα matplotlib
         comp_window.geometry("1080x750")
         comp_window.configure(bg="#efe6b8")
 
@@ -852,7 +869,6 @@ class SimilarityWindow(tk.Toplevel):
         columns = ("tree", "matched", "skipped", "tree_build", "tree_query", "lsh_build", "lsh_query", "total_time")
         tree_view = ttk.Treeview(tree_frame, columns=columns, show="headings", height=display_height, yscrollcommand=y_scroll.set)
         
-        # Επαναφορά της επιλογής / αποεπιλογής γραμμής στο πινακάκι σύγκρισης
         def toggle_selection(event):
             item = tree_view.identify_row(event.y)
             if item in tree_view.selection():
@@ -873,8 +889,8 @@ class SimilarityWindow(tk.Toplevel):
             
         for tree_name, res in results_dict.items():
             t = res["timings_sec"]
-            t_b = t.get("tree_build", t.get("kd_build", 0.0))
-            t_q = t.get("tree_query", t.get("kd_range_query", 0.0))
+            t_b = t.get("tree_build", 0.0)
+            t_q = t.get("tree_query", 0.0)
             lsh_b = t.get("lsh_build", 0.0)
             lsh_q = t.get("lsh_query", 0.0)
             total = t_b + t_q + lsh_b + lsh_q
@@ -891,7 +907,6 @@ class SimilarityWindow(tk.Toplevel):
             
         zebra_stripe_treeview(tree_view)
 
-        # Επαναφορά του κουμπιού εξαγωγής CSV για τη Σύγκριση
         def export_comparison_csv():
             filepath = filedialog.asksaveasfilename(
                 defaultextension=".csv",
@@ -914,8 +929,8 @@ class SimilarityWindow(tk.Toplevel):
                     
                     for tree_name, res in results_dict.items():
                         t = res["timings_sec"]
-                        t_b = t.get("tree_build", t.get("kd_build", 0.0))
-                        t_q = t.get("tree_query", t.get("kd_range_query", 0.0))
+                        t_b = t.get("tree_build", 0.0)
+                        t_q = t.get("tree_query", 0.0)
                         lsh_b = t.get("lsh_build", 0.0)
                         lsh_q = t.get("lsh_query", 0.0)
                         total = t_b + t_q + lsh_b + lsh_q
@@ -938,28 +953,27 @@ class SimilarityWindow(tk.Toplevel):
         export_btn = ttk.Button(frame, text="Export Comparison to CSV", command=export_comparison_csv)
         export_btn.pack(pady=10)
 
-        # Επαναφορά των Γραφημάτων (Matplotlib)
         plot_frame = ttk.Frame(comp_window)
         plot_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
 
         trees = list(results_dict.keys())
-        build_times = [results_dict[t]["timings_sec"].get("tree_build", results_dict[t]["timings_sec"].get("kd_build", 0.0)) for t in trees]
-        query_times = [results_dict[t]["timings_sec"].get("tree_query", results_dict[t]["timings_sec"].get("kd_range_query", 0.0)) for t in trees]
+        build_times = [results_dict[t]["timings_sec"].get("tree_build", 0.0) for t in trees]
+        query_times = [results_dict[t]["timings_sec"].get("tree_query", 0.0) for t in trees]
 
-        # Δημιουργία Figure με 2 subplots (1 γραμμή, 2 στήλες)
+        # Creating a Figure with 2 subplots
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 4))
         fig.patch.set_facecolor('#efe6b8')
 
         bar_colors = ["#755050", "#8FA0AA", '#c9c745', "#634E73"]
 
-        # Γράφημα 1: Build Times
+        # Graph 1: Build Times
         ax1.bar(trees, build_times, color=bar_colors[:len(trees)], edgecolor='black')
         ax1.set_title('Tree Build Time (seconds)', fontsize=11, fontweight='bold', color='#1e2130')
         ax1.set_ylabel('Time (s)')
         ax1.set_facecolor('#ede9d7')
         ax1.grid(axis='y', linestyle='--', alpha=0.7)
 
-        # Γράφημα 2: Query Times
+        # Graph 2: Query Times
         ax2.bar(trees, query_times, color=bar_colors[:len(trees)], edgecolor='black')
         ax2.set_title('Tree Query Time (seconds)', fontsize=11, fontweight='bold', color='#1e2130')
         ax2.set_ylabel('Time (s)')
