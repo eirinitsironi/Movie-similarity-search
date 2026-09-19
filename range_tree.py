@@ -8,6 +8,7 @@ Implements a highly optimized k-dimensional Range Tree combining:
    depth and object-creation overhead from crashing on 1M+ datasets.
 3. Fully dynamic capabilities (Insert, Delete, Update) that propagate 
    changes through both the main tree and all associated structures.
+4. Simulated Radius and kNN Queries via Bounding Box & Expanding Radius.
 """
 
 from __future__ import annotations
@@ -33,7 +34,6 @@ class RangeNode:
         self.right: Optional[RangeNode] = None
         self.assoc: Any = None
         
-        
         self.bucket_mat: Optional[np.ndarray] = None
         self.bucket_ids: Optional[np.ndarray] = None
 
@@ -41,17 +41,21 @@ class RangeNode:
 class RangeTree:
     def __init__(self, dims: int, leaf_size: int = 4096):
         self.dims = dims
-        self.leaf_size = leaf_size  
+        self.leaf_size = leaf_size
         self.root: Optional[RangeNode] = None
         self.size = 0
+        # Stores full coordinates for post-filtering (radius/kNN)
+        self.data_dict: Dict[int, np.ndarray] = {}
 
     def build(self, matrix: np.ndarray, ids: np.ndarray) -> None:
         """Mass Construction (Bottom-Up Bulk Loading)."""
         self.size = len(matrix)
         if self.size > 0:
+            self.data_dict = {int(id_): pt for id_, pt in zip(ids, matrix)}
             self.root = self._build(matrix, ids, 0)
 
     def _build(self, mat: np.ndarray, ids: np.ndarray, dim: int) -> Any:
+        # Base Case 1: Fractional Cascading
         if dim == self.dims - 1:
             order = np.argsort(mat[:, dim])
             return (mat[order, dim], ids[order])
@@ -60,15 +64,14 @@ class RangeTree:
         node.min_val = float(np.min(mat[:, dim]))
         node.max_val = float(np.max(mat[:, dim]))
 
-   
+        # Base Case 2: Bucket
         if len(mat) <= self.leaf_size:
             node.bucket_mat = mat
             node.bucket_ids = ids
             return node
 
-   
+        # Recursive Case
         node.assoc = self._build(mat, ids, dim + 1)
-
         order = np.argsort(mat[:, dim])
         sorted_mat = mat[order]
         sorted_ids = ids[order]
@@ -83,8 +86,9 @@ class RangeTree:
 
     # ------------------------------- insert --------------------------------
     def insert(self, coords: Sequence[float], id_: int) -> None:
-        """Εισάγει δυναμικά ένα σημείο στο δέντρο και στις δομές Assoc."""
         pt = np.asarray(coords, dtype=np.float64)
+        self.data_dict[id_] = pt  
+        
         if self.size == 0:
             self.root = RangeNode()
             self.root.bucket_mat = np.array([pt])
@@ -96,7 +100,6 @@ class RangeTree:
         self.size += 1
 
     def _insert(self, node: Any, pt: np.ndarray, id_: int, dim: int) -> Any:
-        # Base Case 1: Fractional Cascading
         if dim == self.dims - 1:
             vals, ids = node
             idx = np.searchsorted(vals, pt[dim])
@@ -104,7 +107,6 @@ class RangeTree:
             ids = np.insert(ids, idx, id_)
             return (vals, ids)
 
-        # Base Case 2: Bucket
         if isinstance(node, RangeNode) and node.bucket_mat is not None:
             node.bucket_mat = np.vstack([node.bucket_mat, pt])
             node.bucket_ids = np.append(node.bucket_ids, id_)
@@ -112,11 +114,9 @@ class RangeTree:
             node.max_val = max(node.max_val, pt[dim])
             return node
 
-        # Recursive Case
         node.min_val = min(node.min_val, pt[dim])
         node.max_val = max(node.max_val, pt[dim])
 
-        #Routing 
         inserted_child = False
         if node.left and pt[dim] <= node.left.max_val:
             node.left = self._insert(node.left, pt, id_, dim)
@@ -125,7 +125,6 @@ class RangeTree:
             node.right = self._insert(node.right, pt, id_, dim)
             inserted_child = True
         else:
-            # Fallback: If it falls "between" or outside, insert it into the closest branch
             if node.left and node.right:
                 if abs(pt[dim] - node.left.max_val) < abs(pt[dim] - node.right.min_val):
                     node.left = self._insert(node.left, pt, id_, dim)
@@ -137,7 +136,6 @@ class RangeTree:
                 node.right = self._insert(node.right, pt, id_, dim)
             inserted_child = True
 
-  
         if inserted_child and node.assoc is not None:
             node.assoc = self._insert(node.assoc, pt, id_, dim + 1)
 
@@ -145,7 +143,6 @@ class RangeTree:
 
     # ------------------------------- delete --------------------------------
     def delete(self, coords: Sequence[float], id_: int) -> bool:
-        """Deletes the point while ensuring consistency across the associated trees."""
         if self.size == 0:
             return False
         pt = np.asarray(coords, dtype=np.float64)
@@ -153,13 +150,14 @@ class RangeTree:
         self.root = self._delete(self.root, pt, id_, 0, deleted_main)
         if deleted_main[0]:
             self.size -= 1
+            if id_ in self.data_dict:
+                del self.data_dict[id_]  
         return deleted_main[0]
 
     def _delete(self, node: Any, pt: np.ndarray, id_: int, dim: int, deleted_main: List[bool]) -> Any:
         if node is None:
             return None
 
-        # Base Case 1: Fractional Cascading
         if dim == self.dims - 1:
             vals, ids = node
             mask = (ids == id_) & (vals == pt[dim])
@@ -170,7 +168,6 @@ class RangeTree:
                 deleted_main[0] = True
             return (vals, ids)
 
-        # Base Case 2: Bucket
         if isinstance(node, RangeNode) and node.bucket_mat is not None:
             coord_mask = np.all(node.bucket_mat == pt, axis=1)
             mask = (node.bucket_ids == id_) & coord_mask
@@ -183,7 +180,6 @@ class RangeTree:
                     return None
             return node
 
-        # Recursive Case
         child_deleted = [False]
         if node.left and pt[dim] <= node.left.max_val:
             node.left = self._delete(node.left, pt, id_, dim, child_deleted)
@@ -191,7 +187,6 @@ class RangeTree:
         if not child_deleted[0] and node.right and pt[dim] >= node.right.min_val:
             node.right = self._delete(node.right, pt, id_, dim, child_deleted)
             
-        # Fallback 
         if not child_deleted[0]:
             if node.left:
                 node.left = self._delete(node.left, pt, id_, dim, child_deleted)
@@ -204,24 +199,15 @@ class RangeTree:
                 dummy = [False]
                 node.assoc = self._delete(node.assoc, pt, id_, dim + 1, dummy)
 
-        # Pruning
         if node.left is None and node.right is None and node.bucket_mat is None:
             return None
             
         return node
 
     # ------------------------------- update --------------------------------
-    def update(
-        self,
-        old_coords: Sequence[float],
-        old_id: int,
-        new_coords: Sequence[float],
-        new_id: Optional[int] = None,
-    ) -> bool:
-        """Dynamically updates a point by removing the old one and inserting the new one."""
+    def update(self, old_coords: Sequence[float], old_id: int, new_coords: Sequence[float], new_id: Optional[int] = None) -> bool:
         if not self.delete(old_coords, old_id):
             return False
-            
         final_id = new_id if new_id is not None else old_id
         self.insert(new_coords, final_id)
         return True
@@ -231,10 +217,8 @@ class RangeTree:
         mins_np = np.asarray(mins, dtype=np.float64)
         maxs_np = np.asarray(maxs, dtype=np.float64)
         result: List[int] = []
-        
         if self.root is not None:
             self._query(self.root, mins_np, maxs_np, 0, result)
-            
         return result
 
     def _query(self, node: Any, mins: np.ndarray, maxs: np.ndarray, dim: int, result: list) -> None:
@@ -265,6 +249,55 @@ class RangeTree:
             self._query(node.left, mins, maxs, dim, result)
         if node.right:
             self._query(node.right, mins, maxs, dim, result)
+
+    # ------------------------------- similarity / radius query --------------------------------
+    def radius_query(self, point: Sequence[float], radius: float) -> List[Tuple[float, int]]:
+        """
+        Simulates a Radius Query by constructing a bounding box, querying the Range Tree,
+        and then post-filtering the results using the exact Euclidean distance.
+        """
+        if self.size == 0:
+            return []
+            
+        pt_np = np.asarray(point, dtype=np.float64)
+        mins = pt_np - radius
+        maxs = pt_np + radius
+        
+        # 1. Get all points that fall inside the bounding box.
+        candidate_ids = self.range_query(mins, maxs)
+
+        # 2. Filter out points outside the sphere after the box test.
+        result = []
+        for c_id in candidate_ids:
+            coords = self.data_dict[c_id]
+            dist = float(np.linalg.norm(coords - pt_np))
+            if dist <= radius:
+                result.append((dist, c_id))
+
+        return sorted(result)
+
+    # ------------------------------- kNN query --------------------------------
+    def knn_query(self, point: Sequence[float], n: int = 5) -> List[Tuple[float, int]]:
+        """
+        Simulates a kNN Query using an Expanding Radius approach.
+        Starts with a small box and expands it until at least 'n' items are found.
+        """
+        if self.size == 0 or n <= 0:
+            return []
+
+        # Initial radius guess (0.1 works well for normalized data in [0, 1]).
+        current_radius = 0.1
+        results = []
+        
+        while True:
+            results = self.radius_query(point, current_radius)
+            # Stop when enough items are found or the whole tree was scanned.
+            if len(results) >= n or len(results) == self.size:
+                break
+            # Double the radius for the next search.
+            current_radius *= 2.0
+            
+        return results[:n]
 
 
 # ======================================================================

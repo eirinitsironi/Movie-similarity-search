@@ -303,6 +303,8 @@ class OperationsWindow(tk.Toplevel):
         for attr in self.active_attrs:
             self.attr_bounds[attr] = (self.df[attr].min(), self.df[attr].max())
 
+        t0 = time.perf_counter()
+
         if self.tree_type == "Quad Tree":
             mins = [self.attr_bounds[a][0] for a in self.active_attrs]
             maxs = [self.attr_bounds[a][1] for a in self.active_attrs]
@@ -316,6 +318,7 @@ class OperationsWindow(tk.Toplevel):
         elif self.tree_type == "Range Tree":
             self.active_tree = RangeTree(dims=len(self.active_attrs), leaf_size=4096)
 
+        elapsed = time.perf_counter()-t0
         self.log(f"--- Built Empty {self.tree_type} for {len(self.active_attrs)} dimensions: {self.active_attrs} ---")
         
         for widget in self.inputs_container.winfo_children():
@@ -356,9 +359,12 @@ class OperationsWindow(tk.Toplevel):
 
     def _insert_point(self):
         data = self._get_input_point()
-        if not data: return
+        if not data:
+            messagebox.showwarning("Input Error","Please fill in all required fields first.")
+            return
         row_id, coords = data
-        
+
+        t0 = time.perf_counter()
         if self.tree_type == "Quad Tree":
             self.active_tree.insert(Point(coords, row_id))
         elif self.tree_type == "k-d Tree":
@@ -367,14 +373,18 @@ class OperationsWindow(tk.Toplevel):
             self.active_tree.insert(row_id, coords)
         elif self.tree_type == "Range Tree":
             self.active_tree.insert(coords, row_id)
-            
-        self.log(f"SUCCESS: Inserted Movie {row_id} at {coords}")
+        elapsed = time.perf_counter() - t0    
+        self.log(f"SUCCESS: Inserted Movie {row_id} at {coords} in {elapsed:.5f} sec.")
 
     def _delete_point(self):
         data = self._get_input_point()
-        if not data: return
+        if not data:
+            messagebox.showwarning("Input Error", "Please fill in all required fields first.")
+            return
         row_id, coords = data
+
         
+        t0 = time.perf_counter()
         if self.tree_type == "Quad Tree":
             succ = self.active_tree.delete(Point(coords, row_id))
         elif self.tree_type == "k-d Tree":
@@ -383,16 +393,19 @@ class OperationsWindow(tk.Toplevel):
             succ = self.active_tree.delete(coords, row_id)
         elif self.tree_type == "Range Tree":
             succ = self.active_tree.delete(coords, row_id)
-            
-        self.log(f"SUCCESS: Deleted Movie {row_id}." if succ else f"FAIL: Movie {row_id} not found.")
+        elapsed = time.perf_counter() - t0
+        self.log(f"SUCCESS: Deleted Movie {row_id} in {elapsed:.5f} sec." if succ else f"FAIL: Movie {row_id} not found.")
 
     def _update_point(self):
         old_data = self._get_input_point(is_new=False)
         new_data = self._get_input_point(is_new=True)
-        if not old_data or not new_data: return
+        if not old_data or not new_data:
+            messagebox.showwarning("Input Error", "Please fill in all required fields first.")
+            return
         old_id, old_coords = old_data
         new_id, new_coords = new_data
         
+        t0 = time.perf_counter()
         if self.tree_type == "Quad Tree":
             succ = self.active_tree.update(Point(old_coords, old_id), Point(new_coords, old_id))
         elif self.tree_type == "k-d Tree":
@@ -401,34 +414,50 @@ class OperationsWindow(tk.Toplevel):
             succ = self.active_tree.update(old_coords, old_id, new_coords, old_id)
         elif self.tree_type == "Range Tree":
             succ = self.active_tree.update(old_coords, old_id, new_coords, old_id)
-            
-        self.log(f"SUCCESS: Updated Movie {old_id}." if succ else "FAIL: Update failed.")
+        elapsed = time.perf_counter() - t0
+        self.log(f"SUCCESS: Updated Movie {old_id} in {elapsed:.5f} sec." if succ else f"FAIL: Update failed.")
 
     def _knn_search(self):
-        if self.tree_type == "Range Tree":
-            self.log("INFO: Range Tree does not natively support k-NN queries.")
-            return
-
         data = self._get_input_point()
-        if not data: return
+        if not data: 
+            messagebox.showwarning("Input Error", "Please fill in all required fields first.")
+            return
         _, coords = data
         try: k = int(self.k_var.get())
-        except ValueError: return
+        except ValueError:
+            messagebox.showwarning("Input Error","Please enter a valid integer for k.")
+            return
         self.log(f"--- Searching {k}-NN for point {coords} ---")
+
+        target_k = k + 1
+        
+        raw_results = []
+        t0 = time.perf_counter()
         
         if self.tree_type == "Quad Tree":
-            results = self.active_tree.knn(Point(coords, -1), k)
-            for i, res in enumerate(results):
-                dist = math.sqrt(sum((a-b)**2 for a,b in zip(coords, res.coordinates)))
-                self.log(f"{i+1}. Movie ID {res.row_id} | Dist: {dist:.4f}")
+            res = self.active_tree.knn(Point(coords, -1), target_k)
+            for r in res:
+                r_id = getattr(r, "id_", getattr(r, "row_id", "Unknown"))
+                dist = math.sqrt(sum((a-b)**2 for a,b in zip(coords, r.coordinates)))
+                raw_results.append((dist, r_id))
         elif self.tree_type == "k-d Tree":
-            results = self.active_tree.knn_query(coords, k)
-            for i, (neg_dist, res_id) in enumerate(results):
-                self.log(f"{i+1}. Movie ID {res_id} | Dist: {-neg_dist:.4f}")
+            raw_results = self.active_tree.knn_query(coords, target_k)
         elif self.tree_type == "R-Tree":
-            results = self.active_tree.knn_query(coords, k)
-            for i, (dist, res_id) in enumerate(results):
-                self.log(f"{i+1}. Movie ID {res_id} | Dist: {dist:.4f}")
+            raw_results = self.active_tree.knn_query(coords, target_k)
+        elif self.tree_type == "Range Tree":
+            raw_results = self.active_tree.knn_query(coords, target_k)
+            
+        elapsed = time.perf_counter() - t0
+        
+        #if distance == 0 (same movie) ignore
+        filtered_results = [res for res in raw_results if res[0] > 1e-9]
+        
+        #knn 
+        final_results = filtered_results[:k]
+        
+        self.log(f"--- Searched {k}-NN for point {coords} in {elapsed:.5f} sec ---")
+        for i, (dist, res_id) in enumerate(final_results):
+            self.log(f"{i+1}. Movie ID {res_id} | Dist: {dist:.4f}")
 
     # --- BULK OPERATIONS ---
     def _bulk_insert(self):
@@ -491,10 +520,6 @@ class OperationsWindow(tk.Toplevel):
         self.log(f"BULK DELETE: {N} points deleted from {self.tree_type} in {t_total:.5f} seconds.")
 
     def _bulk_knn(self):
-        if self.tree_type == "Range Tree":
-            self.log("BULK k-NN: Not executed. Range Tree does not support k-NN natively.")
-            return
-
         try: N = int(self.n_var.get())
         except ValueError: return
         try: k = int(self.k_var.get())
@@ -513,6 +538,9 @@ class OperationsWindow(tk.Toplevel):
             for coords in queries:
                 self.active_tree.knn_query(coords, k)
         elif self.tree_type == "R-Tree":
+            for coords in queries:
+                self.active_tree.knn_query(coords, k)
+        elif self.tree_type == "Range Tree":
             for coords in queries:
                 self.active_tree.knn_query(coords, k)
         t_total = time.perf_counter() - t0
