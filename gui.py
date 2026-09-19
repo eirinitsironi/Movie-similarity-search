@@ -196,7 +196,7 @@ class OperationsWindow(tk.Toplevel):
     def __init__(self, parent, df):
         super().__init__(parent)
         self.title("Dynamic Tree Operations & Benchmarking")
-        self.geometry("1000x850") 
+        self.geometry("1280x950") 
         apply_theme(self)
         
         self.df = df
@@ -233,8 +233,8 @@ class OperationsWindow(tk.Toplevel):
         grid.pack(anchor="w", pady=2)
         for i, label in enumerate(NUMERIC_FIELDS):
             var = tk.BooleanVar(value=False)
-            cb = ttk.Checkbutton(grid, text=label, variable=var, style="Toggle.Toolbutton", command=lambda l=label: self._enforce_max_dims(l))
-            cb.grid(row=i//4, column=i%4, padx=5, pady=2)
+            cb = ttk.Checkbutton(grid, text=label, variable=var, style="Toggle.Toolbutton", width=12, command=lambda l=label: self._enforce_max_dims(l))
+            cb.grid(row=i//4, column=i%4, padx=5, pady=4, sticky="ew")
             self.numeric_vars[label] = var
 
         ttk.Button(frame, text="Build Empty Tree / Reset", command=self._build_tree_action).pack(pady=5)
@@ -253,28 +253,24 @@ class OperationsWindow(tk.Toplevel):
         self.inputs_container = ttk.Frame(self.op_frame)
         self.inputs_container.pack(fill="x", pady=2, padx=5)
         
-        btn_frame = ttk.Frame(self.op_frame)
-        btn_frame.pack(fill="x", pady=5)
-        ttk.Button(btn_frame, text="Insert", command=self._insert_point).pack(side="left", padx=5)
-        ttk.Button(btn_frame, text="Delete", command=self._delete_point).pack(side="left", padx=5)
-        ttk.Button(btn_frame, text="Update", command=self._update_point).pack(side="left", padx=5)
-        
-        ttk.Label(btn_frame, text=" |  k=").pack(side="left", padx=(20,2))
         self.k_var = tk.StringVar(value="5")
-        ttk.Entry(btn_frame, textvariable=self.k_var, width=5).pack(side="left")
-        ttk.Button(btn_frame, text="k-NN Search", command=self._knn_search).pack(side="left", padx=5)
 
         ttk.Separator(self.op_frame, orient="horizontal").pack(fill="x", pady=5, padx=10)
         
         bulk_frame = ttk.Frame(self.op_frame)
         bulk_frame.pack(fill="x", pady=5, padx=5)
-        ttk.Label(bulk_frame, text="Bulk Benchmarking (N =").pack(side="left")
+        ttk.Label(bulk_frame, text="Bulk Benchmarking N =").pack(side="left")
         self.n_var = tk.StringVar(value="10000")
         ttk.Entry(bulk_frame, textvariable=self.n_var, width=8).pack(side="left")
-        ttk.Label(bulk_frame, text=") : ").pack(side="left")
+        ttk.Label(bulk_frame, text=" : ").pack(side="left")
 
         ttk.Button(bulk_frame, text="Bulk Insert", command=self._bulk_insert).pack(side="left", padx=5)
         ttk.Button(bulk_frame, text="Bulk Delete", command=self._bulk_delete).pack(side="left", padx=5)
+
+        ttk.Label(bulk_frame, text="k =").pack(side="left", padx=(15, 2))
+        self.bulk_k_var = tk.StringVar(value="5")
+        ttk.Entry(bulk_frame, textvariable=self.bulk_k_var, width=5).pack(side="left")
+
         ttk.Button(bulk_frame, text="Bulk k-NN", command=self._bulk_knn).pack(side="left", padx=5)
 
     def _build_console(self):
@@ -319,27 +315,46 @@ class OperationsWindow(tk.Toplevel):
             self.active_tree = RangeTree(dims=len(self.active_attrs), leaf_size=4096)
 
         elapsed = time.perf_counter()-t0
-        self.log(f"--- Built Empty {self.tree_type} for {len(self.active_attrs)} dimensions: {self.active_attrs} ---")
+        self.log(f"--- Built Empty {self.tree_type} for {len(self.active_attrs)} dimensions: {self.active_attrs} in {elapsed:.2f} s ---")
         
         for widget in self.inputs_container.winfo_children():
             widget.destroy()
         self.dynamic_entries.clear()
 
-        ttk.Label(self.inputs_container, text="Movie ID (row_id):").grid(row=0, column=0, padx=5, pady=2, sticky="e")
+        ttk.Label(self.inputs_container, text="Movie ID (row_id):").grid(row=0, column=0, padx=5, pady=2, sticky="w")
         ent_id = ttk.Entry(self.inputs_container, width=15)
         ent_id.grid(row=0, column=1, padx=5, pady=2, sticky="w")
         self.dynamic_entries["row_id"] = ent_id
 
+        ttk.Label(self.inputs_container, text="--- For Update ---", font=("Segoe UI", 9, "bold")).grid(row=0, column=2, columnspan=2, padx=(350, 5), pady=2)
+
         for i, attr in enumerate(self.active_attrs):
-            ttk.Label(self.inputs_container, text=f"{attr}:").grid(row=i+1, column=0, padx=5, pady=2, sticky="e")
+            ttk.Label(self.inputs_container, text=f"{attr}:").grid(row=i+1, column=0, padx=5, pady=2, sticky="w")
             ent = ttk.Entry(self.inputs_container, width=15)
             ent.grid(row=i+1, column=1, padx=5, pady=2, sticky="w")
             self.dynamic_entries[attr] = ent
             
-            ttk.Label(self.inputs_container, text=f"New {attr} (For Update):").grid(row=i+1, column=2, padx=(30,5), pady=2, sticky="e")
+            ttk.Label(self.inputs_container, text=f"New {attr}:").grid(row=i+1, column=2, padx=(350,5), pady=2, sticky="e")
             ent_new = ttk.Entry(self.inputs_container, width=15)
             ent_new.grid(row=i+1, column=3, padx=5, pady=2, sticky="w")
             self.dynamic_entries[f"new_{attr}"] = ent_new
+
+        last_row = len(self.active_attrs) + 1
+
+        ttk.Button(self.inputs_container, text="Insert", command=self._insert_point).grid(row=last_row, column=0, pady=15, padx=5, sticky="w")
+
+        mid_btn_frame = ttk.Frame(self.inputs_container)
+        mid_btn_frame.grid(row=last_row, column=1, pady=15, padx=5, sticky="w")
+        
+        ttk.Button(mid_btn_frame, text="Delete", command=self._delete_point).pack(side="left")
+        ttk.Label(mid_btn_frame, text="k =").pack(side="left", padx=(15, 2))
+        ttk.Entry(mid_btn_frame, textvariable=self.k_var, width=5).pack(side="left")
+        ttk.Button(mid_btn_frame, text="k-NN Search", command=self._knn_search).pack(side="left", padx=5)
+
+        right_btn_frame = ttk.Frame(self.inputs_container)
+        right_btn_frame.grid(row=last_row, column=3, pady=15, padx=5, sticky="w")
+        
+        ttk.Button(right_btn_frame, text="Update", command=self._update_point).pack(side="left")
 
         self.op_frame.pack(fill="x", padx=10, pady=5)
 
@@ -522,7 +537,7 @@ class OperationsWindow(tk.Toplevel):
     def _bulk_knn(self):
         try: N = int(self.n_var.get())
         except ValueError: return
-        try: k = int(self.k_var.get())
+        try: k = int(self.bulk_k_var.get())
         except ValueError: k = 5
 
         queries = []
