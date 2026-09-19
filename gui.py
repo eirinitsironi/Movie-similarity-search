@@ -161,7 +161,7 @@ class MainMenu(tk.Tk):
     def _load_dataset(self):
         path = self.path_var.get().strip()
         if not path:
-            messagebox.showwarning("Dataset", "Please enter the path to the CSV file.")
+            messagebox.showwarning("Dataset", "Please enter the path to the CSV file.", parent=self)
             return
         self.load_status.config(text="Status: Loading... please wait.")
         threading.Thread(target=self._load_worker, args=(path,), daemon=True).start()
@@ -207,6 +207,9 @@ class OperationsWindow(tk.Toplevel):
         
         self.synthetic_data = [] 
         self.synthetic_id_counter = 1000000 
+
+        self.tree_ids = set()
+        self.csv_id_pool = []
         
         self.numeric_vars = {}
         self.dynamic_entries = {}
@@ -243,7 +246,7 @@ class OperationsWindow(tk.Toplevel):
         checked = [l for l, v in self.numeric_vars.items() if v.get()]
         if len(checked) > MAX_DIMS:
             self.numeric_vars[toggled_label].set(False)
-            messagebox.showwarning("Limit", f"Max {MAX_DIMS} dimensions allowed.")
+            messagebox.showwarning("Limit", f"Max {MAX_DIMS} dimensions allowed.", parent=self)
 
     def _build_dynamic_inputs(self):
         self.op_frame = ttk.LabelFrame(self, text="2. Single & Bulk Operations")
@@ -285,15 +288,30 @@ class OperationsWindow(tk.Toplevel):
         self.console.see("end")
 
     # --- ACTIONS ---
+    def _build_csv_id_pool(self):
+        """
+        Returns (in random order) all the IDs of movies in the CSV that have
+        valid (non-null/NaN) values in the currently active dimensions.
+        """
+        valid_mask = pd.Series(True, index=self.df.index)
+        for attr in self.active_attrs:
+            valid_mask &= pd.to_numeric(self.df[attr], errors="coerce").notna()
+        ids = self.df.index[valid_mask].tolist()
+        random.shuffle(ids)
+        return ids
+
     def _build_tree_action(self):
         selected_labels = [l for l, v in self.numeric_vars.items() if v.get()]
         if not selected_labels:
-            messagebox.showwarning("Error", "Select at least 1 attribute.")
+            messagebox.showwarning("Error", "Select at least 1 attribute.", parent=self)
             return
 
         self.active_attrs = [NUMERIC_FIELDS[l] for l in selected_labels]
         self.tree_type = self.tree_var.get()
         self.synthetic_data.clear()
+
+        self.tree_ids = set()
+        self.csv_id_pool = self._build_csv_id_pool()
         
         self.attr_bounds = {}
         for attr in self.active_attrs:
@@ -375,9 +393,17 @@ class OperationsWindow(tk.Toplevel):
     def _insert_point(self):
         data = self._get_input_point()
         if not data:
-            messagebox.showwarning("Input Error","Please fill in all required fields first.")
+            messagebox.showwarning("Input Error","Please fill in all required fields first.", parent=self)
             return
         row_id, coords = data
+
+        if row_id in self.tree_ids:
+            messagebox.showwarning(
+                "Duplicate ID",
+                f"Movie ID {row_id} is already in the tree. Delete it first or choose a different ID.",
+                parent=self
+            )
+            return
 
         t0 = time.perf_counter()
         if self.tree_type == "Quad Tree":
@@ -389,12 +415,18 @@ class OperationsWindow(tk.Toplevel):
         elif self.tree_type == "Range Tree":
             self.active_tree.insert(coords, row_id)
         elapsed = time.perf_counter() - t0    
+
+        self.tree_ids.add(row_id)
+        self.synthetic_data.append((row_id, coords))
+        if row_id in self.csv_id_pool:
+            self.csv_id_pool.remove(row_id)
+
         self.log(f"SUCCESS: Inserted Movie {row_id} at {coords} in {elapsed:.5f} sec.")
 
     def _delete_point(self):
         data = self._get_input_point()
         if not data:
-            messagebox.showwarning("Input Error", "Please fill in all required fields first.")
+            messagebox.showwarning("Input Error", "Please fill in all required fields first.", parent=self)
             return
         row_id, coords = data
 
@@ -409,13 +441,20 @@ class OperationsWindow(tk.Toplevel):
         elif self.tree_type == "Range Tree":
             succ = self.active_tree.delete(coords, row_id)
         elapsed = time.perf_counter() - t0
+
+        if succ:
+            self.tree_ids.discard(row_id)
+            self.synthetic_data = [(rid, c) for rid, c in self.synthetic_data if rid != row_id]
+            if row_id in self.df.index and row_id not in self.csv_id_pool:
+                self.csv_id_pool.append(row_id)
+
         self.log(f"SUCCESS: Deleted Movie {row_id} in {elapsed:.5f} sec." if succ else f"FAIL: Movie {row_id} not found.")
 
     def _update_point(self):
         old_data = self._get_input_point(is_new=False)
         new_data = self._get_input_point(is_new=True)
         if not old_data or not new_data:
-            messagebox.showwarning("Input Error", "Please fill in all required fields first.")
+            messagebox.showwarning("Input Error", "Please fill in all required fields first.", parent=self)
             return
         old_id, old_coords = old_data
         new_id, new_coords = new_data
@@ -430,17 +469,27 @@ class OperationsWindow(tk.Toplevel):
         elif self.tree_type == "Range Tree":
             succ = self.active_tree.update(old_coords, old_id, new_coords, old_id)
         elapsed = time.perf_counter() - t0
-        self.log(f"SUCCESS: Updated Movie {old_id} in {elapsed:.5f} sec." if succ else f"FAIL: Update failed.")
+
+        if succ:
+            self.synthetic_data = [
+                (rid, new_coords) if rid == old_id else (rid, c)
+                for rid, c in self.synthetic_data
+            ]
+            self.log(f"SUCCESS: Updated Movie {old_id} in {elapsed:.5f} sec.")
+            self.log(f"   -> From : {old_coords}")
+            self.log(f"   -> To   : {new_coords}")
+        else:
+            self.log(f"FAIL: Update failed. Movie {old_id} not found at {old_coords}.")
 
     def _knn_search(self):
         data = self._get_input_point()
         if not data: 
-            messagebox.showwarning("Input Error", "Please fill in all required fields first.")
+            messagebox.showwarning("Input Error", "Please fill in all required fields first.", parent=self)
             return
         _, coords = data
         try: k = int(self.k_var.get())
         except ValueError:
-            messagebox.showwarning("Input Error","Please enter a valid integer for k.")
+            messagebox.showwarning("Input Error","Please enter a valid integer for k.", parent=self)
             return
         self.log(f"--- Searching {k}-NN for point {coords} ---")
 
@@ -478,12 +527,17 @@ class OperationsWindow(tk.Toplevel):
     def _bulk_insert(self):
         try: N = int(self.n_var.get())
         except ValueError: return
+
+        if N > len(self.csv_id_pool):
+            N = len(self.csv_id_pool)
+            if N == 0:
+                messagebox.showwarning("BULK INSERT", "No more available movies from the CSV to insert (pool exhausted).", parent=self)
+                return
         
         pts = []
         for _ in range(N):
-            coords = tuple(random.uniform(self.attr_bounds[a][0], self.attr_bounds[a][1]) for a in self.active_attrs)
-            row_id = self.synthetic_id_counter
-            self.synthetic_id_counter += 1
+            row_id = self.csv_id_pool.pop()
+            coords = tuple(float(self.df.loc[row_id, a]) for a in self.active_attrs)
             pts.append((row_id, coords))
 
         t0 = time.perf_counter()
@@ -502,7 +556,18 @@ class OperationsWindow(tk.Toplevel):
         t_total = time.perf_counter() - t0
 
         self.synthetic_data.extend(pts)
-        self.log(f"BULK INSERT: {N} random points inserted into {self.tree_type} in {t_total:.5f} seconds.")
+        self.synthetic_data.sort(key=lambda x: x[0]) 
+        
+        self.tree_ids.update(row_id for row_id, _ in pts)
+        
+        inserted_ids = sorted([row_id for row_id, _ in pts])
+        
+        sample = ", ".join(map(str, inserted_ids[:8]))
+        if len(inserted_ids) > 8:
+            sample += " ..."
+            
+        self.log(f"BULK INSERT: {N} movies inserted into {self.tree_type} in {t_total:.5f} seconds.")
+        self.log(f"   -> Sample of sorted IDs: [{sample}]")
 
     def _bulk_delete(self):
         try: N = int(self.n_var.get())
@@ -531,6 +596,10 @@ class OperationsWindow(tk.Toplevel):
             for row_id, coords in to_delete:
                 self.active_tree.delete(coords, row_id)
         t_total = time.perf_counter() - t0
+
+        for row_id, _ in to_delete:
+            self.tree_ids.discard(row_id)
+        self.csv_id_pool.extend(row_id for row_id, _ in to_delete)
         
         self.log(f"BULK DELETE: {N} points deleted from {self.tree_type} in {t_total:.5f} seconds.")
 
@@ -541,8 +610,12 @@ class OperationsWindow(tk.Toplevel):
         except ValueError: k = 5
 
         queries = []
-        for _ in range(N):
-            coords = tuple(random.uniform(self.attr_bounds[a][0], self.attr_bounds[a][1]) for a in self.active_attrs)
+        valid_mask = ~self.df[self.active_attrs].isna().any(axis=1)
+        valid_ids = self.df[valid_mask].index.tolist()
+        
+        sample_ids = random.sample(valid_ids, min(N, len(valid_ids)))
+        for row_id in sample_ids:
+            coords = tuple(self.df.loc[row_id, self.active_attrs].astype(float))
             queries.append(coords)
 
         t0 = time.perf_counter()
@@ -643,7 +716,7 @@ class SimilarityWindow(tk.Toplevel):
         checked = [l for l, v in self.numeric_vars.items() if v.get()]
         if len(checked) > MAX_DIMS:
             self.numeric_vars[just_toggled_label].set(False)
-            messagebox.showwarning("Warning", f"You can select up to {MAX_DIMS} features at once (k<={MAX_DIMS}).")
+            messagebox.showwarning("Warning", f"You can select up to {MAX_DIMS} features at once (k<={MAX_DIMS}).", parent=self)
 
     # ------------------------------- lsh config --------------------------------
     def _build_lsh_section(self):
@@ -686,12 +759,12 @@ class SimilarityWindow(tk.Toplevel):
     def _run_query(self):
         tree_choice = self.tree_var.get()
         if tree_choice not in IMPLEMENTED_TREES:
-            messagebox.showinfo("Not Implemented", f"The '{tree_choice}' has not been implemented yet.\n")
+            messagebox.showinfo("Not Implemented", f"The '{tree_choice}' has not been implemented yet.\n", parent=self)
             return
         selected_fields = self._gather_selected_fields()
         tree_attributes, ranges, err = validate_ranges(selected_fields)
         if err:
-            messagebox.showerror("Error", err)
+            messagebox.showerror("Error", err, parent=self)
             return
         try:
             top_n = int(self.top_n_var.get())
@@ -699,10 +772,10 @@ class SimilarityWindow(tk.Toplevel):
             num_perm = int(self.num_perm_var.get())
             bands = int(self.bands_var.get())
         except ValueError:
-            messagebox.showerror("Error", "Inputs must be integers.")
+            messagebox.showerror("Error", "Inputs must be integers.", parent=self)
             return
         if num_perm % bands != 0:
-            messagebox.showerror("Advanced LSH Error", "The number of permutations (num_perm) must be exactly divisible by the number of bands.")
+            messagebox.showerror("Advanced LSH Error", "The number of permutations (num_perm) must be exactly divisible by the number of bands.", parent=self)
             return
 
         languages = [self.lang_listbox.get(i) for i in self.lang_listbox.curselection()]
@@ -743,7 +816,7 @@ class SimilarityWindow(tk.Toplevel):
         selected_fields = self._gather_selected_fields()
         tree_attributes, ranges, err = validate_ranges(selected_fields)
         if err:
-            messagebox.showerror("Error", err)
+            messagebox.showerror("Error", err, parent=self)
             return
         try:
             top_n = int(self.top_n_var.get())
@@ -751,11 +824,11 @@ class SimilarityWindow(tk.Toplevel):
             num_perm = int(self.num_perm_var.get())
             bands = int(self.bands_var.get())
         except ValueError:
-            messagebox.showerror("Error", "Top-N, min_shingles, num_perm, and bands must be integers.")
+            messagebox.showerror("Error", "Top-N, min_shingles, num_perm, and bands must be integers.", parent=self)
             return
 
         if num_perm % bands != 0:
-            messagebox.showerror("Advanced LSH Error", "The number of permutations (num_perm) must be exactly divisible by the number of bands.")
+            messagebox.showerror("Advanced LSH Error", "The number of permutations (num_perm) must be exactly divisible by the number of bands.", parent=self)
             return
         languages = [self.lang_listbox.get(i) for i in self.lang_listbox.curselection()]
         countries = [self.country_listbox.get(i) for i in self.country_listbox.curselection()]
@@ -799,7 +872,7 @@ class SimilarityWindow(tk.Toplevel):
                     self.run_status.config(text="Comparison completed!")
                 elif kind == "query_error":
                     self.run_status.config(text="Error.")
-                    messagebox.showerror("Error", msg[1])
+                    messagebox.showerror("Error", msg[1], parent=self)
         except queue.Empty:
             pass
 
@@ -886,9 +959,9 @@ class SimilarityWindow(tk.Toplevel):
                         tt1, gg1 = subset.loc[id1, ["title", text_col]]
                         tt2, gg2 = subset.loc[id2, ["title", text_col]]
                         writer.writerow([f"{score:.3f}", tt1, gg1, tt2, gg2])
-                messagebox.showinfo("Export Successful", f"Results successfully exported to\n{filepath}")
+                messagebox.showinfo("Export Successful", f"Results successfully exported to\n{filepath}", parent=self)
             except Exception as e:
-                messagebox.showerror("Export Error", f"Failed to export results:\n{e}")
+                messagebox.showerror("Export Error", f"Failed to export results:\n{e}", parent=self)
 
         export_btn = ttk.Button(frame, text="Export to CSV", command=export_csv)
         export_btn.pack(pady=10)
@@ -989,9 +1062,9 @@ class SimilarityWindow(tk.Toplevel):
                             f"{total:.4f}"
                         ])
                         
-                messagebox.showinfo("Export Successful", f"Benchmarking results successfully exported to\n{filepath}")
+                messagebox.showinfo("Export Successful", f"Benchmarking results successfully exported to\n{filepath}", parent=self)
             except Exception as e:
-                messagebox.showerror("Export Error", f"Failed to export results:\n{e}")
+                messagebox.showerror("Export Error", f"Failed to export results:\n{e}", parent=self)
 
         export_btn = ttk.Button(frame, text="Export Comparison to CSV", command=export_comparison_csv)
         export_btn.pack(pady=10)
