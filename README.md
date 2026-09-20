@@ -23,6 +23,9 @@ metadata dataset:
    Hashing (LSH)**, returning the **Top-N most similar pairs** without falling back to an
    expensive O(n²) pairwise comparison.
 
+3. **Dynamic Operations & Bulk Benchmarking.**
+   All indexing structures maintain their dynamic properties post-construction. They fully support individual **Insert, Delete, Update, and k-Nearest Neighbors (k-NN)** queries. Furthermore, a dedicated benchmarking module allows stress-testing these structures by executing bulk operations (e.g., 10,000 inserts/deletes/k-NNs) to empirically evaluate their time complexities and architectural trade-offs under heavy loads.
+
 All algorithms (k-d tree, quad tree, range tree, R-tree, MinHash, banded LSH) are
 implemented **from scratch**, without relying on external libraries such as
 `scikit-learn` or `datasketch`, so that the underlying mechanics stay fully transparent
@@ -67,6 +70,7 @@ python gui.py
 4. Choose the textual attribute for similarity, Top-N, and minimum shingle count.
 5. Click **Run Query** to see the Top-N most similar pairs plus build/query timings, or
    **Run All Trees & Compare** to execute the same query across all four structures.
+6. Navigate to the **Dynamic Tree Operations** tab to test the dynamic capabilities of the structures. You can build trees from scratch, perform single Insert/Delete/Update/k-NN actions, or run **Bulk Benchmarking** tests. A live console tracks tree states and execution times.
 
 ## License / attribution
  
